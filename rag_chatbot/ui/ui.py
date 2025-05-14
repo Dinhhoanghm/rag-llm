@@ -534,6 +534,10 @@ class LocalChatbotUI:
                 css=CSS,
         ) as demo:
             gr.Markdown("## Local RAG Chatbot 🤖")
+
+            # Create a state variable to hold our documents
+            documents_state = gr.State([])
+
             with gr.Tab("Interface"):
                 sidebar_state = gr.State(True)
                 with gr.Row(variant=self._variant, equal_height=False):
@@ -567,7 +571,7 @@ class LocalChatbotUI:
                                     value="Cancel", visible=False, min_width=50
                                 )
 
-                            # Hugging Face dataset section instead of document upload
+                            # Hugging Face dataset input section
                             gr.Markdown("### Dataset")
                             huggingface_dataset = gr.Textbox(
                                 label="HuggingFace Dataset",
@@ -599,10 +603,10 @@ class LocalChatbotUI:
                                 interactive=True,
                                 allow_custom_value=False,
                             )
-                            # Changed from MultimodalTextbox to Textbox
-                            message = gr.Textbox(
-                                value="",
+                            message = gr.MultimodalTextbox(
+                                value=DefaultElement.DEFAULT_MESSAGE,
                                 placeholder="Enter you message:",
+                                file_types=[".txt", ".pdf", ".csv"],
                                 show_label=False,
                                 scale=6,
                                 lines=1,
@@ -642,43 +646,7 @@ class LocalChatbotUI:
                         show_progress="hidden",
                     )
 
-            # Direct query to chat engine to avoid RetrievalStartEvent validation errors
-            def query_wrapper(chat_mode, query_str):
-                """Wrapper to bypass pipeline query and go straight to chat engine"""
-                try:
-                    # First try with the raw string
-                    try:
-                        return self._pipeline.query(chat_mode, query_str, [])
-                    except Exception as e1:
-                        print(f"First query attempt failed: {str(e1)}")
-
-                    # Try accessing chat engine directly
-                    if chat_mode == "chat":
-                        if hasattr(self._pipeline, '_chat_engine'):
-                            return self._pipeline._chat_engine.chat(query_str)
-                        else:
-                            raise ValueError("Cannot access chat engine directly")
-                    else:  # QA mode
-                        if hasattr(self._pipeline, '_chat_engine'):
-                            return self._pipeline._chat_engine.query(query_str)
-                        else:
-                            raise ValueError("Cannot access chat engine directly")
-                except Exception as e:
-                    print(f"Error in query_wrapper: {str(e)}")
-                    # Last resort: try with dict format
-                    console = sys.stdout
-                    sys.stdout = self._logger  # Redirect stdout to logger
-
-                    try:
-                        # Try with dict format as last resort
-                        result = self._pipeline.query(chat_mode, {"text": query_str}, [])
-                        sys.stdout = console  # Restore stdout
-                        return result
-                    except Exception as e2:
-                        sys.stdout = console  # Restore stdout
-                        raise e2  # Re-raise the exception for handling in calling function
-
-            # Function to safely handle dataset import
+            # Define new helper functions to work within the Gradio context
             def import_dataset(dataset_name):
                 try:
                     # Import the datasets module
@@ -701,9 +669,11 @@ class LocalChatbotUI:
                     split_name = list(dataset.keys())[0]
                     data_split = dataset[split_name]
 
+                    # For MedRAG/textbooks, we know the structure from the screenshot
+                    # It has id, title, content, and contents fields
+
                     # Extract text from the dataset - load ALL documents
-                    max_docs = len(data_split)  # Process all documents
-                    for i in range(max_docs):
+                    for i in range(len(data_split)):
                         item = data_split[i]
                         # Create a structured document with metadata from the dataset
                         doc_id = item.get('id', f"doc_{i}")
@@ -736,7 +706,6 @@ class LocalChatbotUI:
                 except Exception as e:
                     return [], f"Error: {str(e)}"
 
-            # Function to process documents without progress tracking
             def process_documents(documents):
                 if not documents:
                     return "No documents to process", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
@@ -747,10 +716,7 @@ class LocalChatbotUI:
                     for file_path in documents:
                         dest = os.path.join(self._data_dir, file_path.split("/")[-1])
                         if file_path != dest:  # Avoid moving if already at destination
-                            try:
-                                shutil.copy(src=file_path, dst=dest)
-                            except Exception as e:
-                                print(f"Error copying file: {str(e)}")
+                            shutil.copy(src=file_path, dst=dest)
                         input_files.append(dest)
                     self._pipeline.store_nodes(input_files=input_files)
                 else:
@@ -758,32 +724,6 @@ class LocalChatbotUI:
 
                 self._pipeline.set_chat_mode()
                 return self._pipeline.get_system_prompt(), DefaultElement.COMPLETED_STATUS
-
-            # Safe message handling for Kaggle compatibility
-            def safe_response(chat_mode, message_text, history):
-                try:
-                    if not message_text:
-                        return message_text, history, "Please enter a message"
-
-                    if self._pipeline.get_model_name() in [None, ""]:
-                        return message_text, history, "Please select a model first"
-
-                    # Use the wrapper to bypass the validation error
-                    response = query_wrapper(chat_mode, message_text)
-
-                    # Collect response
-                    answer = []
-                    for text in response.response_gen:
-                        answer.append(text)
-
-                    final_answer = "".join(answer)
-                    return "", history + [[message_text, final_answer]], "Completed"
-
-                except Exception as e:
-                    return message_text, history, f"Error: {str(e)}"
-
-            # Create state to hold documents
-            documents_state = gr.State([])
 
             # Event handlers
             clear_btn.click(self._clear_chat, outputs=[message, chatbot, status])
@@ -793,8 +733,7 @@ class LocalChatbotUI:
             )
             undo_btn.click(self._undo_chat, inputs=[chatbot], outputs=[chatbot])
             reset_btn.click(
-                lambda: ("", [], "Reset"),
-                outputs=[message, chatbot, status]
+                self._reset_chat, outputs=[message, chatbot, status]
             )
             pull_btn.click(
                 lambda: (gr.update(visible=False), gr.update(visible=False)),
@@ -805,9 +744,9 @@ class LocalChatbotUI:
                 outputs=[message, chatbot, status, model],
             ).then(self._change_model, inputs=[model], outputs=[status])
 
-            # Message submission with safe response handling
+            # Update the message submission to not use documents
             message.submit(
-                safe_response,
+                self._get_respone,
                 inputs=[chat_mode, message, chatbot],
                 outputs=[message, chatbot, status],
             )
@@ -819,7 +758,7 @@ class LocalChatbotUI:
                 outputs=[pull_btn, cancel_btn, status],
             )
 
-            # Hugging Face dataset loading handlers
+            # Hugging Face dataset loading handler
             load_dataset_btn.click(
                 import_dataset,
                 inputs=[huggingface_dataset],
@@ -830,7 +769,7 @@ class LocalChatbotUI:
                 outputs=[system_prompt, status],
             )
 
-            # Reset dataset handler
+            # Reset dataset button handler
             reset_dataset_btn.click(
                 lambda: ([], "Documents reset successfully"),
                 outputs=[documents_state, status],
@@ -846,7 +785,6 @@ class LocalChatbotUI:
                 outputs=[ui_btn, setting, sidebar_state],
             )
 
-            # Welcome message
             demo.load(self._welcome, outputs=[message, chatbot, status])
 
         return demo
