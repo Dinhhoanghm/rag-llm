@@ -635,12 +635,15 @@ class LocalChatbotUI:
                     log = gr.Code(
                         label="", language="markdown", interactive=False, lines=30
                     )
+                    # Removed show_progress parameter to avoid queuing requirement
                     demo.load(
                         self._logger.read_logs,
                         outputs=[log],
                         every=1,
-                        show_progress="hidden",
                     )
+
+            # Create a state variable to hold documents
+            documents_state = gr.State([])
 
             # Direct query to chat engine to avoid RetrievalStartEvent validation errors
             def query_wrapper(chat_mode, query_str):
@@ -678,7 +681,30 @@ class LocalChatbotUI:
                         sys.stdout = console  # Restore stdout
                         raise e2  # Re-raise the exception for handling in calling function
 
-            # Function to safely handle dataset import
+            # Safe message handling for Kaggle compatibility
+            def safe_response(chat_mode, message_text, history):
+                try:
+                    if not message_text:
+                        return message_text, history, "Please enter a message"
+
+                    if self._pipeline.get_model_name() in [None, ""]:
+                        return message_text, history, "Please select a model first"
+
+                    # Use the wrapper to bypass the validation error
+                    response = query_wrapper(chat_mode, message_text)
+
+                    # Collect response
+                    answer = []
+                    for text in response.response_gen:
+                        answer.append(text)
+
+                    final_answer = "".join(answer)
+                    return "", history + [[message_text, final_answer]], "Completed"
+
+                except Exception as e:
+                    return message_text, history, f"Error: {str(e)}"
+
+            # Function to safely handle dataset import without progress tracking
             def import_dataset(dataset_name):
                 try:
                     # Import the datasets module
@@ -704,6 +730,10 @@ class LocalChatbotUI:
                     # Extract text from the dataset - load ALL documents
                     max_docs = len(data_split)  # Process all documents
                     for i in range(max_docs):
+                        # Log progress without progress tracking
+                        if i % 100 == 0:
+                            print(f"Processing document {i}/{max_docs}")
+
                         item = data_split[i]
                         # Create a structured document with metadata from the dataset
                         doc_id = item.get('id', f"doc_{i}")
@@ -759,31 +789,27 @@ class LocalChatbotUI:
                 self._pipeline.set_chat_mode()
                 return self._pipeline.get_system_prompt(), DefaultElement.COMPLETED_STATUS
 
-            # Safe message handling for Kaggle compatibility
-            def safe_response(chat_mode, message_text, history):
+            # Modified _pull_model to avoid progress tracking
+            def pull_model_action(model_name):
                 try:
-                    if not message_text:
-                        return message_text, history, "Please enter a message"
-
-                    if self._pipeline.get_model_name() in [None, ""]:
-                        return message_text, history, "Please select a model first"
-
-                    # Use the wrapper to bypass the validation error
-                    response = query_wrapper(chat_mode, message_text)
-
-                    # Collect response
-                    answer = []
-                    for text in response.response_gen:
-                        answer.append(text)
-
-                    final_answer = "".join(answer)
-                    return "", history + [[message_text, final_answer]], "Completed"
-
+                    if (model_name not in ["gpt-3.5-turbo", "gpt-4"]) and not (self._pipeline.check_exist(model_name)):
+                        response = self._pipeline.pull_model(model_name)
+                        if response.status_code == 200:
+                            # Set the model after pulling
+                            self._pipeline.set_model_name(model_name)
+                            self._pipeline.set_model()
+                            self._pipeline.set_engine()
+                            return "", [], f"Successfully pulled and set model: {model_name}", model_name
+                        else:
+                            return "", [], f"Failed to pull model: {model_name}", model_name
+                    else:
+                        # Set the model if it already exists
+                        self._pipeline.set_model_name(model_name)
+                        self._pipeline.set_model()
+                        self._pipeline.set_engine()
+                        return "", [], f"Model {model_name} is ready to use", model_name
                 except Exception as e:
-                    return message_text, history, f"Error: {str(e)}"
-
-            # Create state to hold documents
-            documents_state = gr.State([])
+                    return "", [], f"Error pulling model: {str(e)}", model_name
 
             # Event handlers
             clear_btn.click(self._clear_chat, outputs=[message, chatbot, status])
@@ -800,7 +826,7 @@ class LocalChatbotUI:
                 lambda: (gr.update(visible=False), gr.update(visible=False)),
                 outputs=[pull_btn, cancel_btn],
             ).then(
-                self._pull_model,
+                pull_model_action,  # Using function without progress tracking
                 inputs=[model],
                 outputs=[message, chatbot, status, model],
             ).then(self._change_model, inputs=[model], outputs=[status])
@@ -846,7 +872,10 @@ class LocalChatbotUI:
                 outputs=[ui_btn, setting, sidebar_state],
             )
 
-            # Welcome message
-            demo.load(self._welcome, outputs=[message, chatbot, status])
+            # Use a simpler welcome method to avoid progress tracking
+            def simple_welcome():
+                return "", [["", "Hi 👋, how can I help you today?"]], "Ready!"
+
+            demo.load(simple_welcome, outputs=[message, chatbot, status])
 
         return demo
