@@ -819,6 +819,6 @@ class LocalChatbotUI:
                 outputs=[ui_btn, setting, sidebar_state],
             )
 
-            demo.load(self._welcome, outputs=[message, chatbot, status])
+            demo.load(self._welcome, outputs=[message, chatbot, status], show_progress=False,)
 
         return demo
