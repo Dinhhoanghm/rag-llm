@@ -718,9 +718,40 @@ class LocalChatbotUI:
             def cancel_pull():
                 return gr.update(visible=False), gr.update(visible=False), "Cancelled model pull"
 
+            # Direct query to chat engine to avoid RetrievalStartEvent validation errors
+            def query_wrapper(chat_mode, query_str):
+                """Wrapper to bypass pipeline query and go straight to chat engine"""
+                try:
+                    if chat_mode == "chat":
+                        if hasattr(self._pipeline, '_chat_engine'):
+                            return self._pipeline._chat_engine.chat(query_str)
+                        else:
+                            # Fallback if _chat_engine isn't directly accessible
+                            return self._pipeline.query(chat_mode, query_str)
+                    else:  # QA mode
+                        if hasattr(self._pipeline, '_chat_engine'):
+                            return self._pipeline._chat_engine.query(query_str)
+                        else:
+                            # Fallback if _chat_engine isn't directly accessible
+                            return self._pipeline.query(chat_mode, query_str)
+                except Exception as e:
+                    print(f"Error in query_wrapper: {str(e)}")
+                    # If direct access failed, try another approach with string
+                    console = sys.stdout
+                    sys.stdout = self._logger  # Redirect stdout to logger
+
+                    try:
+                        # Last resort: try the pipeline's query with a string
+                        result = self._pipeline.query(chat_mode, query_str)
+                        sys.stdout = console  # Restore stdout
+                        return result
+                    except Exception as e2:
+                        sys.stdout = console  # Restore stdout
+                        raise e2  # Re-raise the exception for handling in calling function
+
             # Event handlers
             clear_btn.click(
-                lambda: ("", chatbot, "Cleared"),
+                lambda: ("", [], "Cleared"),
                 outputs=[message, chatbot, status]
             )
 
@@ -744,11 +775,10 @@ class LocalChatbotUI:
                     if self._pipeline.get_model_name() in [None, ""]:
                         return message_text, history, "Please select a model first"
 
-                    # Convert message to expected format
-                    msg_dict = {"text": message_text}
+                    # Use the wrapper to bypass the validation error
+                    response = query_wrapper(chat_mode, message_text)
 
-                    # Capture response
-                    response = self._pipeline.query(chat_mode, msg_dict, history)
+                    # Collect response
                     answer = []
                     for text in response.response_gen:
                         answer.append(text)
