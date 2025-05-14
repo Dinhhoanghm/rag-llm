@@ -552,10 +552,19 @@ class LocalChatbotUI:
                         choices=[
                             "llama3.2",
                         ],
-                        value="llama3.2",  # Default to prevent errors
+                        value=None,  # No default value to allow user to select
                         interactive=True,
                         allow_custom_value=True,
                     )
+
+                    # Pull model buttons
+                    with gr.Row():
+                        pull_btn = gr.Button(
+                            value="Pull Model", visible=False, min_width=50
+                        )
+                        cancel_btn = gr.Button(
+                            value="Cancel", visible=False, min_width=50
+                        )
 
                     # Hugging Face dataset input section
                     huggingface_dataset = gr.Textbox(
@@ -565,6 +574,7 @@ class LocalChatbotUI:
                         interactive=True,
                     )
                     load_dataset_btn = gr.Button(value="Load Dataset")
+                    reset_dataset_btn = gr.Button(value="Reset Dataset")
 
                 with gr.Column(scale=2):
                     chatbot = gr.Chatbot(
@@ -601,44 +611,116 @@ class LocalChatbotUI:
                     from datasets import load_dataset
 
                     try:
+                        # Clean dataset name if needed
+                        if dataset_name.startswith("datasets/"):
+                            dataset_name = dataset_name[len("datasets/"):]
+
                         dataset = load_dataset(dataset_name)
 
-                        # Process shorter number of documents for Kaggle
+                        # Process documents for Kaggle
                         documents = []
                         split_name = list(dataset.keys())[0]
                         data_split = dataset[split_name]
 
-                        # Process only first 5 documents for testing
-                        max_docs = min(5, len(data_split))
+                        # Process documents
+                        max_docs = min(100, len(data_split))  # Adjust based on available memory
                         for i in range(max_docs):
                             item = data_split[i]
-                            doc_content = item.get('content', item.get('contents', ''))
+                            doc_id = item.get('id', f"doc_{i}")
+                            doc_title = item.get('title', "Untitled")
+
+                            # Get content, checking all possible fields
+                            doc_content = item.get('content', '')
+                            if not doc_content and 'contents' in item:
+                                doc_content = item.get('contents', '')
+
                             if not doc_content:
                                 continue
 
-                            # Use simpler path for Kaggle
-                            temp_file_path = f"/tmp/doc_{i}.txt"
+                            # Use path in the data directory
+                            temp_file_path = os.path.join(self._data_dir, f"{doc_id}.txt")
                             with open(temp_file_path, 'w', encoding='utf-8') as f:
+                                f.write(f"# {doc_title}\n\n")
                                 f.write(doc_content)
                             documents.append(temp_file_path)
 
                         if not documents:
-                            return "No documents found in dataset", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
+                            return "No documents found in dataset"
 
                         # Process the documents
-                        self._pipeline.store_nodes(input_files=documents)
+                        if self._host == "host.docker.internal":
+                            input_files = []
+                            for file_path in documents:
+                                dest = os.path.join(self._data_dir, file_path.split("/")[-1])
+                                if file_path != dest:  # Avoid moving if already at destination
+                                    shutil.copy(src=file_path, dst=dest)
+                                input_files.append(dest)
+                            self._pipeline.store_nodes(input_files=input_files)
+                        else:
+                            self._pipeline.store_nodes(input_files=documents)
+
                         self._pipeline.set_chat_mode()
-                        return f"Loaded {len(documents)} documents from {dataset_name}", DefaultElement.COMPLETED_STATUS
+                        return f"Loaded {len(documents)} documents from {dataset_name}"
 
                     except Exception as e:
-                        return f"Error loading dataset: {str(e)}", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
+                        return f"Error loading dataset: {str(e)}"
 
                 except Exception as e:
-                    return f"Critical error: {str(e)}", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
+                    return f"Critical error: {str(e)}"
 
-            # Event handlers with simplified error handling
+            def reset_documents():
+                try:
+                    self._pipeline.reset_documents()
+                    return "All documents have been reset"
+                except Exception as e:
+                    return f"Error resetting documents: {str(e)}"
+
+            # Model handling functions
+            def check_model_exists(model_name):
+                if model_name in [None, ""]:
+                    return gr.update(visible=False), gr.update(visible=False), "Please select a model"
+
+                if (model_name in ["gpt-3.5-turbo", "gpt-4"]) or (self._pipeline.check_exist(model_name)):
+                    return gr.update(visible=False), gr.update(visible=False), f"Using model: {model_name}"
+                else:
+                    return gr.update(visible=True), gr.update(visible=True), f"Model {model_name} needs to be pulled"
+
+            def pull_model_action(model_name):
+                try:
+                    if (model_name not in ["gpt-3.5-turbo", "gpt-4"]) and not (self._pipeline.check_exist(model_name)):
+                        response = self._pipeline.pull_model(model_name)
+                        if response.status_code == 200:
+                            # Set the model after pulling
+                            self._pipeline.set_model_name(model_name)
+                            self._pipeline.set_model()
+                            self._pipeline.set_engine()
+                            return "", [], f"Successfully pulled and set model: {model_name}", model_name
+                        else:
+                            return "", [], f"Failed to pull model: {model_name}", model_name
+                    else:
+                        # Set the model if it already exists
+                        self._pipeline.set_model_name(model_name)
+                        self._pipeline.set_model()
+                        self._pipeline.set_engine()
+                        return "", [], f"Model {model_name} is ready to use", model_name
+                except Exception as e:
+                    return "", [], f"Error pulling model: {str(e)}", model_name
+
+            def set_model(model_name):
+                try:
+                    self._pipeline.set_model_name(model_name)
+                    self._pipeline.set_model()
+                    self._pipeline.set_engine()
+                    return f"Model set to {model_name}"
+                except Exception as e:
+                    return f"Error setting model: {str(e)}"
+
+            def cancel_pull():
+                return gr.update(visible=False), gr.update(visible=False), "Cancelled model pull"
+
+            # Event handlers
             clear_btn.click(
-                lambda: (gr.Textbox(value=""), [], "Cleared"),
+                lambda: ("", chatbot, "Cleared"),
                 outputs=[message, chatbot, status]
             )
 
@@ -649,7 +731,7 @@ class LocalChatbotUI:
             )
 
             reset_btn.click(
-                lambda: (gr.Textbox(value=""), [], "Reset"),
+                lambda: ("", [], "Reset"),
                 outputs=[message, chatbot, status]
             )
 
@@ -662,8 +744,11 @@ class LocalChatbotUI:
                     if self._pipeline.get_model_name() in [None, ""]:
                         return message_text, history, "Please select a model first"
 
-                    # Use a simpler approach for Kaggle
-                    response = self._pipeline.query(chat_mode, message_text, history)
+                    # Convert message to expected format
+                    msg_dict = {"text": message_text}
+
+                    # Capture response
+                    response = self._pipeline.query(chat_mode, msg_dict, history)
                     answer = []
                     for text in response.response_gen:
                         answer.append(text)
@@ -680,21 +765,48 @@ class LocalChatbotUI:
                 outputs=[message, chatbot, status],
             )
 
+            # Dataset handling
             load_dataset_btn.click(
                 safe_import_dataset,
                 inputs=[huggingface_dataset],
-                outputs=[status, status],
-            )
-
-            # Simplified model handling
-            model.change(
-                lambda m: (self._pipeline.set_model_name(m), self._pipeline.set_model(), self._pipeline.set_engine(),
-                           f"Model set to {m}"),
-                inputs=[model],
                 outputs=[status],
             )
 
-            # Add a welcome message that works in Kaggle
+            reset_dataset_btn.click(
+                reset_documents,
+                outputs=[status],
+            )
+
+            # Model handling
+            model.change(
+                check_model_exists,
+                inputs=[model],
+                outputs=[pull_btn, cancel_btn, status],
+            )
+
+            pull_btn.click(
+                lambda: (gr.update(visible=False), gr.update(visible=False)),
+                outputs=[pull_btn, cancel_btn],
+            ).then(
+                pull_model_action,
+                inputs=[model],
+                outputs=[message, chatbot, status, model],
+            )
+
+            cancel_btn.click(
+                cancel_pull,
+                outputs=[pull_btn, cancel_btn, status],
+            )
+
+            # Set language
+            language.change(
+                lambda lang: (self._pipeline.set_language(lang), self._pipeline.set_chat_mode(),
+                              f"Language set to {lang}"),
+                inputs=[language],
+                outputs=[status],
+            )
+
+            # Add a welcome message
             demo.load(lambda: ("", [["", "Hi 👋, how can I help you today?"]], "Ready!"),
                       outputs=[message, chatbot, status])
 
