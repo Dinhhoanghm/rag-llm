@@ -646,6 +646,66 @@ class LocalChatbotUI:
                         show_progress="hidden",
                     )
 
+            # Define new helper functions to work within the Gradio context
+            def import_dataset(dataset_name):
+                try:
+                    # Import the datasets module
+                    from datasets import load_dataset
+
+                    # Parse the dataset name (removing 'datasets/' prefix if present)
+                    if dataset_name.startswith("datasets/"):
+                        dataset_name = dataset_name[len("datasets/"):]
+
+                    # Load the specified dataset from Hugging Face Hub
+                    try:
+                        dataset = load_dataset(dataset_name)
+                    except Exception as e:
+                        return [], f"Failed to load dataset: {str(e)}"
+
+                    # Process the dataset and convert to the format expected by the pipeline
+                    documents = []
+
+                    # Get the first split (usually 'train')
+                    split_name = list(dataset.keys())[0]
+                    data_split = dataset[split_name]
+
+                    # For MedRAG/textbooks, we know the structure from the screenshot
+                    # It has id, title, content, and contents fields
+
+                    # Extract text from the dataset - load ALL documents
+                    for i in range(len(data_split)):
+                        item = data_split[i]
+                        # Create a structured document with metadata from the dataset
+                        doc_id = item.get('id', f"doc_{i}")
+                        doc_title = item.get('title', "Untitled")
+
+                        # For the content, prioritize 'content' field, but also check 'contents' as backup
+                        doc_content = item.get('content', '')
+                        if not doc_content and 'contents' in item:
+                            doc_content = item.get('contents', '')
+
+                        # Skip empty documents
+                        if not doc_content:
+                            continue
+
+                        # Create a temporary file with the text content and metadata
+                        temp_file_path = os.path.join(self._data_dir, f"{doc_id}.txt")
+                        with open(temp_file_path, 'w', encoding='utf-8') as f:
+                            # Add title as header
+                            f.write(f"# {doc_title}\n\n")
+                            # Add the main content
+                            f.write(doc_content)
+
+                        documents.append(temp_file_path)
+
+                    if not documents:
+                        return [], f"No valid documents found in dataset {dataset_name}"
+
+                    return documents, f"Successfully loaded {len(documents)} documents from {dataset_name}"
+
+                except Exception as e:
+                    return [], f"Error: {str(e)}"
+
             def process_documents(documents):
                 if not documents:
                     return "No documents to process", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
@@ -700,7 +760,7 @@ class LocalChatbotUI:
 
             # Hugging Face dataset loading handler
             load_dataset_btn.click(
-                self._import_from_huggingface,
+                import_dataset,
                 inputs=[huggingface_dataset],
                 outputs=[documents_state, status],
             ).then(
