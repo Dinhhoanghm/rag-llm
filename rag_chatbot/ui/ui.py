@@ -535,309 +535,327 @@ class LocalChatbotUI:
         ) as demo:
             gr.Markdown("## Local RAG Chatbot 🤖")
 
-            # Simplified UI for Kaggle
-            with gr.Row():
-                with gr.Column(scale=1):
-                    status = gr.Textbox(
-                        label="Status", value="Ready!", interactive=False
-                    )
-                    language = gr.Radio(
-                        label="Language",
-                        choices=["vi", "eng"],
-                        value="eng",
-                        interactive=True,
-                    )
-                    model = gr.Dropdown(
-                        label="Choose Model:",
-                        choices=[
-                            "llama3.2",
-                        ],
-                        value=None,  # No default value to allow user to select
-                        interactive=True,
-                        allow_custom_value=True,
-                    )
+            # Create a state variable to hold our documents
+            documents_state = gr.State([])
 
-                    # Pull model buttons
-                    with gr.Row():
-                        pull_btn = gr.Button(
-                            value="Pull Model", visible=False, min_width=50
+            with gr.Tab("Interface"):
+                sidebar_state = gr.State(True)
+                with gr.Row(variant=self._variant, equal_height=False):
+                    with gr.Column(
+                            variant=self._variant, scale=10, visible=sidebar_state.value
+                    ) as setting:
+                        with gr.Column():
+                            status = gr.Textbox(
+                                label="Status", value="Ready!", interactive=False
+                            )
+                            language = gr.Radio(
+                                label="Language",
+                                choices=["vi", "eng"],
+                                value="eng",
+                                interactive=True,
+                            )
+                            model = gr.Dropdown(
+                                label="Choose Model:",
+                                choices=[
+                                    "llama3.2",
+                                ],
+                                value=None,
+                                interactive=True,
+                                allow_custom_value=True,
+                            )
+                            with gr.Row():
+                                pull_btn = gr.Button(
+                                    value="Pull Model", visible=False, min_width=50
+                                )
+                                cancel_btn = gr.Button(
+                                    value="Cancel", visible=False, min_width=50
+                                )
+
+                            # Hugging Face dataset input section
+                            gr.Markdown("### Dataset")
+                            huggingface_dataset = gr.Textbox(
+                                label="HuggingFace Dataset",
+                                placeholder="Enter dataset path (e.g., MedRAG/textbooks)",
+                                value="MedRAG/textbooks",
+                                interactive=True,
+                            )
+                            with gr.Row():
+                                load_dataset_btn = gr.Button(value="Load Dataset", min_width=50)
+                                reset_dataset_btn = gr.Button(value="Reset Dataset", min_width=50)
+
+                    with gr.Column(scale=30, variant=self._variant):
+                        chatbot = gr.Chatbot(
+                            layout="bubble",
+                            value=[],
+                            height=550,
+                            scale=2,
+                            show_copy_button=True,
+                            bubble_full_width=False,
+                            avatar_images=self._avatar_images,
                         )
-                        cancel_btn = gr.Button(
-                            value="Cancel", visible=False, min_width=50
+
+                        with gr.Row(variant=self._variant):
+                            chat_mode = gr.Dropdown(
+                                choices=["chat", "QA"],
+                                value="QA",
+                                min_width=50,
+                                show_label=False,
+                                interactive=True,
+                                allow_custom_value=False,
+                            )
+                            # Changed from MultimodalTextbox to Textbox
+                            message = gr.Textbox(
+                                value="",
+                                placeholder="Enter your message:",
+                                show_label=False,
+                                scale=6,
+                                lines=1,
+                            )
+                        with gr.Row(variant=self._variant):
+                            ui_btn = gr.Button(
+                                value="Hide Setting"
+                                if sidebar_state.value
+                                else "Show Setting",
+                                min_width=20,
+                            )
+                            undo_btn = gr.Button(value="Undo", min_width=20)
+                            clear_btn = gr.Button(value="Clear", min_width=20)
+                            reset_btn = gr.Button(value="Reset", min_width=20)
+
+                with gr.Tab("Setting"):
+                    with gr.Row(variant=self._variant, equal_height=False):
+                        with gr.Column():
+                            system_prompt = gr.Textbox(
+                                label="System Prompt",
+                                value=self._pipeline.get_system_prompt(),
+                                interactive=True,
+                                lines=10,
+                                max_lines=50,
+                            )
+                            sys_prompt_btn = gr.Button(value="Set System Prompt")
+
+                with gr.Tab("Output"):
+                    with gr.Row(variant=self._variant):
+                        log = gr.Code(
+                            label="", language="markdown", interactive=False, lines=30
+                        )
+                        demo.load(
+                            self._logger.read_logs,
+                            outputs=[log],
+                            every=1,
+                            show_progress="hidden",
                         )
 
-                    # Hugging Face dataset input section
-                    huggingface_dataset = gr.Textbox(
-                        label="HuggingFace Dataset",
-                        placeholder="Enter dataset path (e.g., MedRAG/textbooks)",
-                        value="MedRAG/textbooks",
-                        interactive=True,
-                    )
-                    load_dataset_btn = gr.Button(value="Load Dataset")
-                    reset_dataset_btn = gr.Button(value="Reset Dataset")
-
-                with gr.Column(scale=2):
-                    chatbot = gr.Chatbot(
-                        layout="bubble",
-                        value=[],
-                        height=550,
-                        show_copy_button=True,
-                        bubble_full_width=False,
-                    )
-
-                    with gr.Row():
-                        chat_mode = gr.Dropdown(
-                            choices=["chat", "QA"],
-                            value="QA",
-                            min_width=50,
-                            show_label=False,
-                            interactive=True,
-                            allow_custom_value=False,
-                        )
-                        message = gr.Textbox(  # Changed from MultimodalTextbox to simplify
-                            placeholder="Enter you message:",
-                            show_label=False,
-                            scale=6,
-                            lines=1,
-                        )
-                    with gr.Row():
-                        undo_btn = gr.Button(value="Undo", min_width=20)
-                        clear_btn = gr.Button(value="Clear", min_width=20)
-                        reset_btn = gr.Button(value="Reset", min_width=20)
-
-            # Define helpers with error catching for Kaggle
-            def safe_import_dataset(dataset_name):
-                try:
-                    from datasets import load_dataset
-
+                # Direct query to chat engine to avoid RetrievalStartEvent validation errors
+                def query_wrapper(chat_mode, query_str):
+                    """Wrapper to bypass pipeline query and go straight to chat engine"""
                     try:
-                        # Clean dataset name if needed
+                        if chat_mode == "chat":
+                            if hasattr(self._pipeline, '_chat_engine'):
+                                return self._pipeline._chat_engine.chat(query_str)
+                            else:
+                                # Fallback if _chat_engine isn't directly accessible
+                                return self._pipeline.query(chat_mode, query_str)
+                        else:  # QA mode
+                            if hasattr(self._pipeline, '_chat_engine'):
+                                return self._pipeline._chat_engine.query(query_str)
+                            else:
+                                # Fallback if _chat_engine isn't directly accessible
+                                return self._pipeline.query(chat_mode, query_str)
+                    except Exception as e:
+                        print(f"Error in query_wrapper: {str(e)}")
+                        # If direct access failed, try another approach with string
+                        console = sys.stdout
+                        sys.stdout = self._logger  # Redirect stdout to logger
+
+                        try:
+                            # Last resort: try the pipeline's query with a string
+                            result = self._pipeline.query(chat_mode, query_str)
+                            sys.stdout = console  # Restore stdout
+                            return result
+                        except Exception as e2:
+                            sys.stdout = console  # Restore stdout
+                            raise e2  # Re-raise the exception for handling in calling function
+
+                # Define new helper functions to work within the Gradio context
+                def import_dataset(dataset_name):
+                    try:
+                        # Import the datasets module
+                        from datasets import load_dataset
+
+                        # Parse the dataset name (removing 'datasets/' prefix if present)
                         if dataset_name.startswith("datasets/"):
                             dataset_name = dataset_name[len("datasets/"):]
 
-                        dataset = load_dataset(dataset_name)
+                        # Load the specified dataset from Hugging Face Hub
+                        try:
+                            dataset = load_dataset(dataset_name)
+                        except Exception as e:
+                            return [], f"Failed to load dataset: {str(e)}"
 
-                        # Process documents for Kaggle
+                        # Process the dataset and convert to the format expected by the pipeline
                         documents = []
+
+                        # Get the first split (usually 'train')
                         split_name = list(dataset.keys())[0]
                         data_split = dataset[split_name]
 
-                        # Process documents
-                        max_docs = min(100, len(data_split))  # Adjust based on available memory
+                        # Extract text from the dataset - load ALL documents
+                        max_docs = len(data_split)  # Process all documents
                         for i in range(max_docs):
                             item = data_split[i]
+                            # Create a structured document with metadata from the dataset
                             doc_id = item.get('id', f"doc_{i}")
                             doc_title = item.get('title', "Untitled")
 
-                            # Get content, checking all possible fields
+                            # For the content, prioritize 'content' field, but also check 'contents' as backup
                             doc_content = item.get('content', '')
                             if not doc_content and 'contents' in item:
                                 doc_content = item.get('contents', '')
 
+                            # Skip empty documents
                             if not doc_content:
                                 continue
 
-                            # Use path in the data directory
+                            # Create a temporary file with the text content and metadata
                             temp_file_path = os.path.join(self._data_dir, f"{doc_id}.txt")
                             with open(temp_file_path, 'w', encoding='utf-8') as f:
+                                # Add title as header
                                 f.write(f"# {doc_title}\n\n")
+                                # Add the main content
                                 f.write(doc_content)
+
                             documents.append(temp_file_path)
 
                         if not documents:
-                            return "No documents found in dataset"
+                            return [], f"No valid documents found in dataset {dataset_name}"
 
-                        # Process the documents
-                        if self._host == "host.docker.internal":
-                            input_files = []
-                            for file_path in documents:
-                                dest = os.path.join(self._data_dir, file_path.split("/")[-1])
-                                if file_path != dest:  # Avoid moving if already at destination
-                                    shutil.copy(src=file_path, dst=dest)
-                                input_files.append(dest)
-                            self._pipeline.store_nodes(input_files=input_files)
-                        else:
-                            self._pipeline.store_nodes(input_files=documents)
-
-                        self._pipeline.set_chat_mode()
-                        return f"Loaded {len(documents)} documents from {dataset_name}"
+                        return documents, f"Successfully loaded {len(documents)} documents from {dataset_name}"
 
                     except Exception as e:
-                        return f"Error loading dataset: {str(e)}"
+                        return [], f"Error: {str(e)}"
 
-                except Exception as e:
-                    return f"Critical error: {str(e)}"
+                def process_documents(documents):
+                    if not documents:
+                        return "No documents to process", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
 
-            def reset_documents():
-                try:
-                    self._pipeline.reset_documents()
-                    return "All documents have been reset"
-                except Exception as e:
-                    return f"Error resetting documents: {str(e)}"
-
-            # Model handling functions
-            def check_model_exists(model_name):
-                if model_name in [None, ""]:
-                    return gr.update(visible=False), gr.update(visible=False), "Please select a model"
-
-                if (model_name in ["gpt-3.5-turbo", "gpt-4"]) or (self._pipeline.check_exist(model_name)):
-                    return gr.update(visible=False), gr.update(visible=False), f"Using model: {model_name}"
-                else:
-                    return gr.update(visible=True), gr.update(visible=True), f"Model {model_name} needs to be pulled"
-
-            def pull_model_action(model_name):
-                try:
-                    if (model_name not in ["gpt-3.5-turbo", "gpt-4"]) and not (self._pipeline.check_exist(model_name)):
-                        response = self._pipeline.pull_model(model_name)
-                        if response.status_code == 200:
-                            # Set the model after pulling
-                            self._pipeline.set_model_name(model_name)
-                            self._pipeline.set_model()
-                            self._pipeline.set_engine()
-                            return "", [], f"Successfully pulled and set model: {model_name}", model_name
-                        else:
-                            return "", [], f"Failed to pull model: {model_name}", model_name
+                    # Process the documents
+                    if self._host == "host.docker.internal":
+                        input_files = []
+                        for file_path in documents:
+                            dest = os.path.join(self._data_dir, file_path.split("/")[-1])
+                            if file_path != dest:  # Avoid moving if already at destination
+                                try:
+                                    shutil.copy(src=file_path, dst=dest)
+                                except Exception as e:
+                                    print(f"Error copying file: {str(e)}")
+                            input_files.append(dest)
+                        self._pipeline.store_nodes(input_files=input_files)
                     else:
-                        # Set the model if it already exists
-                        self._pipeline.set_model_name(model_name)
-                        self._pipeline.set_model()
-                        self._pipeline.set_engine()
-                        return "", [], f"Model {model_name} is ready to use", model_name
-                except Exception as e:
-                    return "", [], f"Error pulling model: {str(e)}", model_name
+                        self._pipeline.store_nodes(input_files=documents)
 
-            def set_model(model_name):
-                try:
-                    self._pipeline.set_model_name(model_name)
-                    self._pipeline.set_model()
-                    self._pipeline.set_engine()
-                    return f"Model set to {model_name}"
-                except Exception as e:
-                    return f"Error setting model: {str(e)}"
+                    self._pipeline.set_chat_mode()
+                    return self._pipeline.get_system_prompt(), DefaultElement.COMPLETED_STATUS
 
-            def cancel_pull():
-                return gr.update(visible=False), gr.update(visible=False), "Cancelled model pull"
-
-            # Direct query to chat engine to avoid RetrievalStartEvent validation errors
-            def query_wrapper(chat_mode, query_str):
-                """Wrapper to bypass pipeline query and go straight to chat engine"""
-                try:
-                    if chat_mode == "chat":
-                        if hasattr(self._pipeline, '_chat_engine'):
-                            return self._pipeline._chat_engine.chat(query_str)
-                        else:
-                            # Fallback if _chat_engine isn't directly accessible
-                            return self._pipeline.query(chat_mode, query_str)
-                    else:  # QA mode
-                        if hasattr(self._pipeline, '_chat_engine'):
-                            return self._pipeline._chat_engine.query(query_str)
-                        else:
-                            # Fallback if _chat_engine isn't directly accessible
-                            return self._pipeline.query(chat_mode, query_str)
-                except Exception as e:
-                    print(f"Error in query_wrapper: {str(e)}")
-                    # If direct access failed, try another approach with string
-                    console = sys.stdout
-                    sys.stdout = self._logger  # Redirect stdout to logger
-
+                # Safe message handling for Kaggle compatibility
+                def safe_response(chat_mode, message_text, history):
                     try:
-                        # Last resort: try the pipeline's query with a string
-                        result = self._pipeline.query(chat_mode, query_str)
-                        sys.stdout = console  # Restore stdout
-                        return result
-                    except Exception as e2:
-                        sys.stdout = console  # Restore stdout
-                        raise e2  # Re-raise the exception for handling in calling function
+                        if not message_text:
+                            return message_text, history, "Please enter a message"
 
-            # Event handlers
-            clear_btn.click(
-                lambda: ("", [], "Cleared"),
-                outputs=[message, chatbot, status]
-            )
+                        if self._pipeline.get_model_name() in [None, ""]:
+                            return message_text, history, "Please select a model first"
 
-            undo_btn.click(
-                lambda h: h[:-1] if len(h) > 0 else [],
-                inputs=[chatbot],
-                outputs=[chatbot]
-            )
+                        # Use the wrapper to bypass the validation error
+                        response = query_wrapper(chat_mode, message_text)
 
-            reset_btn.click(
-                lambda: ("", [], "Reset"),
-                outputs=[message, chatbot, status]
-            )
+                        # Collect response
+                        answer = []
+                        for text in response.response_gen:
+                            answer.append(text)
 
-            # Safe message handling
-            def safe_response(chat_mode, message_text, history):
-                try:
-                    if not message_text:
-                        return message_text, history, "Please enter a message"
+                        final_answer = "".join(answer)
+                        return "", history + [[message_text, final_answer]], "Completed"
 
-                    if self._pipeline.get_model_name() in [None, ""]:
-                        return message_text, history, "Please select a model first"
+                    except Exception as e:
+                        return message_text, history, f"Error: {str(e)}"
 
-                    # Use the wrapper to bypass the validation error
-                    response = query_wrapper(chat_mode, message_text)
+                # Event handlers
+                clear_btn.click(
+                    lambda: ("", [], "Cleared"),
+                    outputs=[message, chatbot, status]
+                )
 
-                    # Collect response
-                    answer = []
-                    for text in response.response_gen:
-                        answer.append(text)
+                cancel_btn.click(
+                    lambda: (gr.update(visible=False), gr.update(visible=False), None),
+                    outputs=[pull_btn, cancel_btn, model],
+                )
 
-                    final_answer = "".join(answer)
-                    return "", history + [[message_text, final_answer]], "Completed"
+                undo_btn.click(
+                    lambda h: h[:-1] if len(h) > 0 else [],
+                    inputs=[chatbot],
+                    outputs=[chatbot]
+                )
 
-                except Exception as e:
-                    return message_text, history, f"Error: {str(e)}"
+                reset_btn.click(
+                    lambda: ("", [], "Reset"),
+                    outputs=[message, chatbot, status]
+                )
 
-            message.submit(
-                safe_response,
-                inputs=[chat_mode, message, chatbot],
-                outputs=[message, chatbot, status],
-            )
+                pull_btn.click(
+                    lambda: (gr.update(visible=False), gr.update(visible=False)),
+                    outputs=[pull_btn, cancel_btn],
+                ).then(
+                    self._pull_model,
+                    inputs=[model],
+                    outputs=[message, chatbot, status, model],
+                ).then(self._change_model, inputs=[model], outputs=[status])
 
-            # Dataset handling
-            load_dataset_btn.click(
-                safe_import_dataset,
-                inputs=[huggingface_dataset],
-                outputs=[status],
-            )
+                # Message submission with direct string handling
+                message.submit(
+                    safe_response,
+                    inputs=[chat_mode, message, chatbot],
+                    outputs=[message, chatbot, status],
+                )
 
-            reset_dataset_btn.click(
-                reset_documents,
-                outputs=[status],
-            )
+                language.change(self._change_language, inputs=[language])
 
-            # Model handling
-            model.change(
-                check_model_exists,
-                inputs=[model],
-                outputs=[pull_btn, cancel_btn, status],
-            )
+                model.change(
+                    self._get_confirm_pull_model,
+                    inputs=[model],
+                    outputs=[pull_btn, cancel_btn, status],
+                )
 
-            pull_btn.click(
-                lambda: (gr.update(visible=False), gr.update(visible=False)),
-                outputs=[pull_btn, cancel_btn],
-            ).then(
-                pull_model_action,
-                inputs=[model],
-                outputs=[message, chatbot, status, model],
-            )
+                # Hugging Face dataset loading handler
+                load_dataset_btn.click(
+                    import_dataset,
+                    inputs=[huggingface_dataset],
+                    outputs=[documents_state, status],
+                ).then(
+                    process_documents,
+                    inputs=[documents_state],
+                    outputs=[system_prompt, status],
+                )
 
-            cancel_btn.click(
-                cancel_pull,
-                outputs=[pull_btn, cancel_btn, status],
-            )
+                # Reset dataset button handler
+                reset_dataset_btn.click(
+                    lambda: ([], "Documents reset successfully"),
+                    outputs=[documents_state, status],
+                ).then(
+                    lambda: self._pipeline.reset_documents(),
+                    outputs=[],
+                )
 
-            # Set language
-            language.change(
-                lambda lang: (self._pipeline.set_language(lang), self._pipeline.set_chat_mode(),
-                              f"Language set to {lang}"),
-                inputs=[language],
-                outputs=[status],
-            )
+                sys_prompt_btn.click(self._change_system_prompt, inputs=[system_prompt])
 
-            # Add a welcome message
-            demo.load(lambda: ("", [["", "Hi 👋, how can I help you today?"]], "Ready!"),
-                      outputs=[message, chatbot, status])
+                ui_btn.click(
+                    self._show_hide_setting,
+                    inputs=[sidebar_state],
+                    outputs=[ui_btn, setting, sidebar_state],
+                )
 
-        return demo
+                # Welcome message
+                demo.load(lambda: ("", [["", "Hi 👋, how can I help you today?"]], "Ready!"),
+                          outputs=[message, chatbot, status])
+
+            return demo
