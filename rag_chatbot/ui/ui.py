@@ -532,7 +532,7 @@ class LocalChatbotUI:
                 theme=gr.themes.Soft(primary_hue="slate"),
                 js=JS_LIGHT_THEME,
                 css=CSS,
-        ) as demo:
+        ).queue() as demo:
             gr.Markdown("## Local RAG Chatbot 🤖")
             with gr.Tab("Interface"):
                 sidebar_state = gr.State(True)
