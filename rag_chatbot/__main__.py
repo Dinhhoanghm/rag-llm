@@ -50,7 +50,7 @@ ui = LocalChatbotUI(
 )
 
 ui.build().launch(
-    share= True,
+    share=args.share,
     server_name="0.0.0.0",
     debug=False,
     show_api=False
