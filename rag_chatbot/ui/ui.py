@@ -594,6 +594,13 @@ class LocalChatbotUI:
                             avatar_images=self._avatar_images,
                         )
 
+                        # Add file upload separately
+                        file_upload = gr.File(
+                            file_types=[".txt", ".pdf", ".csv"],
+                            label="Upload Documents",
+                            file_count="multiple"
+                        )
+
                         with gr.Row(variant=self._variant):
                             chat_mode = gr.Dropdown(
                                 choices=["chat", "QA"],
@@ -603,10 +610,9 @@ class LocalChatbotUI:
                                 interactive=True,
                                 allow_custom_value=False,
                             )
-                            message = gr.MultimodalTextbox(
+                            message = gr.Textbox(
                                 value=DefaultElement.DEFAULT_MESSAGE,
-                                placeholder="Enter you message:",
-                                file_types=[".txt", ".pdf", ".csv"],
+                                placeholder="Enter your message:",
                                 show_label=False,
                                 scale=6,
                                 lines=1,
@@ -725,6 +731,27 @@ class LocalChatbotUI:
                 self._pipeline.set_chat_mode()
                 return self._pipeline.get_system_prompt(), DefaultElement.COMPLETED_STATUS
 
+            # Process uploaded files
+            def process_uploaded_files(files):
+                if not files:
+                    return "No files uploaded", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
+
+                file_paths = [file.name for file in files]
+
+                # Process the documents
+                if self._host == "host.docker.internal":
+                    input_files = []
+                    for file_path in file_paths:
+                        dest = os.path.join(self._data_dir, file_path.split("/")[-1])
+                        if file_path != dest:  # Avoid moving if already at destination
+                            shutil.copy(src=file_path, dst=dest)
+                        input_files.append(dest)
+                    self._pipeline.store_nodes(input_files=input_files)
+                else:
+                    self._pipeline.store_nodes(input_files=file_paths)
+
+                return "Files uploaded and processed successfully!", DefaultElement.COMPLETED_STATUS
+
             # Event handlers
             clear_btn.click(self._clear_chat, outputs=[message, chatbot, status])
             cancel_btn.click(
@@ -743,6 +770,13 @@ class LocalChatbotUI:
                 inputs=[model],
                 outputs=[message, chatbot, status, model],
             ).then(self._change_model, inputs=[model], outputs=[status])
+
+            # File upload handling
+            file_upload.change(
+                process_uploaded_files,
+                inputs=[file_upload],
+                outputs=[status]
+            )
 
             # Update the message submission to not use documents
             message.submit(
