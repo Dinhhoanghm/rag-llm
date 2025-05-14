@@ -790,16 +790,13 @@ class LocalChatbotUI:
     #     return demo
 
     def build(self):
+        """Build the chatbot UI with Hugging Face dataset integration instead of file upload"""
         with gr.Blocks(
                 theme=gr.themes.Soft(primary_hue="slate"),
                 js=JS_LIGHT_THEME,
                 css=CSS,
         ) as demo:
             gr.Markdown("## Local RAG Chatbot 🤖")
-
-            # Store variables
-            documents_list = []
-
             with gr.Tab("Interface"):
                 sidebar_state = gr.State(True)
                 with gr.Row(variant=self._variant, equal_height=False):
@@ -867,7 +864,7 @@ class LocalChatbotUI:
                             )
                             message = gr.Textbox(
                                 value="",
-                                placeholder="Enter you message:",
+                                placeholder="Enter your message:",
                                 show_label=False,
                                 scale=6,
                                 lines=1,
@@ -907,77 +904,9 @@ class LocalChatbotUI:
                         show_progress="hidden",
                     )
 
-            # Define simpler event handlers
-            def load_huggingface_dataset(dataset_name):
-                nonlocal documents_list
-                try:
-                    # Import the datasets module
-                    import importlib.util
-                    if importlib.util.find_spec("datasets") is None:
-                        return "Error: The 'datasets' package is not installed. Please install it with 'pip install datasets'."
-
-                    from datasets import load_dataset
-
-                    # Parse the dataset name
-                    if dataset_name.startswith("datasets/"):
-                        dataset_name = dataset_name[len("datasets/"):]
-
-                    # Load the dataset
-                    dataset = load_dataset(dataset_name)
-
-                    # Process the dataset documents
-                    documents = []
-                    split_name = list(dataset.keys())[0]  # Get first split (usually 'train')
-                    data_split = dataset[split_name]
-
-                    for i, item in enumerate(data_split):
-                        doc_id = item.get('id', f"doc_{i}")
-                        doc_title = item.get('title', "Untitled")
-                        doc_content = item.get('content', '')
-                        if not doc_content and 'contents' in item:
-                            doc_content = item.get('contents', '')
-
-                        if not doc_content:
-                            continue
-
-                        # Create a file for the document
-                        temp_file_path = os.path.join(self._data_dir, f"{doc_id}.txt")
-                        with open(temp_file_path, 'w', encoding='utf-8') as f:
-                            f.write(f"# {doc_title}\n\n")
-                            f.write(doc_content)
-
-                        documents.append(temp_file_path)
-
-                    # Process the documents with the pipeline
-                    if documents:
-                        # Store for later processing
-                        documents_list = documents
-
-                        # Process with pipeline
-                        if self._host == "host.docker.internal":
-                            input_files = []
-                            for file_path in documents:
-                                dest = os.path.join(self._data_dir, os.path.basename(file_path))
-                                if file_path != dest:
-                                    shutil.copy(src=file_path, dst=dest)
-                                input_files.append(dest)
-                            self._pipeline.store_nodes(input_files=input_files)
-                        else:
-                            self._pipeline.store_nodes(input_files=documents)
-
-                        self._pipeline.set_chat_mode()
-                        return f"Successfully loaded and processed {len(documents)} documents from {dataset_name}"
-                    else:
-                        return "No valid documents found in the dataset."
-
-                except Exception as e:
-                    return f"Error loading dataset: {str(e)}"
-
-            def reset_documents():
-                nonlocal documents_list
-                documents_list = []
-                self._pipeline.reset_documents()
-                return "Documents reset successfully."
+            # Fix for the message to work with the existing _get_respone method
+            def process_message(msg):
+                return {"text": msg}
 
             # Event handlers
             clear_btn.click(self._clear_chat, outputs=[message, chatbot, status])
@@ -998,11 +927,14 @@ class LocalChatbotUI:
                 outputs=[message, chatbot, status, model],
             ).then(self._change_model, inputs=[model], outputs=[status])
 
-            # Update the message submission
+            # Simplify the message submission
             message.submit(
+                lambda msg: process_message(msg),
+                inputs=[message],
+                outputs=[]
+            ).then(
                 self._get_respone,
-                inputs=[chat_mode, gr.Textbox(value={"text": ""}), chatbot],
-                # Create a dict with text key for compatibility
+                inputs=[chat_mode, lambda msg: {"text": msg}, chatbot],
                 outputs=[message, chatbot, status],
             )
 
@@ -1013,16 +945,17 @@ class LocalChatbotUI:
                 outputs=[pull_btn, cancel_btn, status],
             )
 
-            # Dataset handlers
+            # Hugging Face dataset loading handler
             load_dataset_btn.click(
-                load_huggingface_dataset,
+                self._import_from_huggingface,
                 inputs=[huggingface_dataset],
-                outputs=[status],
+                outputs=[status]
             )
 
+            # Reset dataset button handler
             reset_dataset_btn.click(
-                reset_documents,
-                outputs=[status],
+                self._reset_document,
+                outputs=[status]
             )
 
             sys_prompt_btn.click(self._change_system_prompt, inputs=[system_prompt])
