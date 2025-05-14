@@ -56,10 +56,10 @@ class LLMResponse:
         yield from self._yield_string(DefaultElement.EMPTY_MESSAGE)
 
     def stream_response(
-            self,
-            message: str,
-            history: list[list[str]],
-            response: StreamingAgentChatResponse,
+        self,
+        message: str,
+        history: list[list[str]],
+        response: StreamingAgentChatResponse,
     ):
         answer = []
         for text in response.response_gen:
@@ -78,12 +78,12 @@ class LLMResponse:
 
 class LocalChatbotUI:
     def __init__(
-            self,
-            pipeline: LocalRAGPipeline,
-            logger: Logger,
-            host: str = "host.docker.internal",
-            data_dir: str = "data/data",
-            avatar_images: list[str] = ["./assets/user.png", "./assets/bot.png"],
+        self,
+        pipeline: LocalRAGPipeline,
+        logger: Logger,
+        host: str = "host.docker.internal",
+        data_dir: str = "data/data",
+        avatar_images: list[str] = ["./assets/user.png", "./assets/bot.png"],
     ):
         self._pipeline = pipeline
         self._logger = logger
@@ -98,11 +98,11 @@ class LocalChatbotUI:
         self._llm_response = LLMResponse()
 
     def _get_respone(
-            self,
-            chat_mode: str,
-            message: dict[str, str],
-            chatbot: list[list[str, str]],
-            progress=gr.Progress(track_tqdm=True),
+        self,
+        chat_mode: str,
+        message: dict[str, str],
+        chatbot: list[list[str, str]],
+        progress=gr.Progress(track_tqdm=True),
     ):
         if self._pipeline.get_model_name() in [None, ""]:
             for m in self._llm_response.set_model():
@@ -115,7 +115,7 @@ class LocalChatbotUI:
             sys.stdout = self._logger
             response = self._pipeline.query(chat_mode, message["text"], chatbot)
             for m in self._llm_response.stream_response(
-                    message["text"], chatbot, response
+                message["text"], chatbot, response
             ):
                 yield m
             sys.stdout = console
@@ -136,7 +136,7 @@ class LocalChatbotUI:
 
     def _pull_model(self, model: str, progress=gr.Progress(track_tqdm=True)):
         if (model not in ["gpt-3.5-turbo", "gpt-4"]) and not (
-                self._pipeline.check_exist(model)
+            self._pipeline.check_exist(model)
         ):
             response = self._pipeline.pull_model(model)
             if response.status_code == 200:
@@ -284,7 +284,7 @@ class LocalChatbotUI:
         return (gr.update(visible=visible), gr.update(visible=visible))
 
     def _processing_document(
-            self, document: list[str], progress=gr.Progress(track_tqdm=True)
+        self, document: list[str], progress=gr.Progress(track_tqdm=True)
     ):
         document = document or []
         if self._host == "host.docker.internal":
@@ -527,444 +527,175 @@ class LocalChatbotUI:
     #
     #     return demo
 
-    # def build(self):
-    #     with gr.Blocks(
-    #             theme=gr.themes.Soft(primary_hue="slate"),
-    #             js=JS_LIGHT_THEME,
-    #             css=CSS,
-    #     ) as demo:
-    #         gr.Markdown("## Local RAG Chatbot 🤖")
-    #
-    #         # Create a state variable to hold our documents
-    #         documents_state = gr.State([])
-    #
-    #         with gr.Tab("Interface"):
-    #             sidebar_state = gr.State(True)
-    #             with gr.Row(variant=self._variant, equal_height=False):
-    #                 with gr.Column(
-    #                         variant=self._variant, scale=10, visible=sidebar_state.value
-    #                 ) as setting:
-    #                     with gr.Column():
-    #                         status = gr.Textbox(
-    #                             label="Status", value="Ready!", interactive=False
-    #                         )
-    #                         language = gr.Radio(
-    #                             label="Language",
-    #                             choices=["vi", "eng"],
-    #                             value="eng",
-    #                             interactive=True,
-    #                         )
-    #                         model = gr.Dropdown(
-    #                             label="Choose Model:",
-    #                             choices=[
-    #                                 "llama3.2",
-    #                             ],
-    #                             value=None,
-    #                             interactive=True,
-    #                             allow_custom_value=True,
-    #                         )
-    #                         with gr.Row():
-    #                             pull_btn = gr.Button(
-    #                                 value="Pull Model", visible=False, min_width=50
-    #                             )
-    #                             cancel_btn = gr.Button(
-    #                                 value="Cancel", visible=False, min_width=50
-    #                             )
-    #
-    #                         # Hugging Face dataset input section
-    #                         gr.Markdown("### Dataset")
-    #                         huggingface_dataset = gr.Textbox(
-    #                             label="HuggingFace Dataset",
-    #                             placeholder="Enter dataset path (e.g., MedRAG/textbooks)",
-    #                             value="MedRAG/textbooks",
-    #                             interactive=True,
-    #                         )
-    #                         with gr.Row():
-    #                             load_dataset_btn = gr.Button(value="Load Dataset", min_width=50)
-    #                             reset_dataset_btn = gr.Button(value="Reset Dataset", min_width=50)
-    #
-    #                 with gr.Column(scale=30, variant=self._variant):
-    #                     chatbot = gr.Chatbot(
-    #                         layout="bubble",
-    #                         value=[],
-    #                         height=550,
-    #                         scale=2,
-    #                         show_copy_button=True,
-    #                         bubble_full_width=False,
-    #                         avatar_images=self._avatar_images,
-    #                     )
-    #
-    #                     with gr.Row(variant=self._variant):
-    #                         chat_mode = gr.Dropdown(
-    #                             choices=["chat", "QA"],
-    #                             value="QA",
-    #                             min_width=50,
-    #                             show_label=False,
-    #                             interactive=True,
-    #                             allow_custom_value=False,
-    #                         )
-    #                         message = gr.MultimodalTextbox(
-    #                             value=DefaultElement.DEFAULT_MESSAGE,
-    #                             placeholder="Enter you message:",
-    #                             file_types=[".txt", ".pdf", ".csv"],
-    #                             show_label=False,
-    #                             scale=6,
-    #                             lines=1,
-    #                         )
-    #                     with gr.Row(variant=self._variant):
-    #                         ui_btn = gr.Button(
-    #                             value="Hide Setting"
-    #                             if sidebar_state.value
-    #                             else "Show Setting",
-    #                             min_width=20,
-    #                         )
-    #                         undo_btn = gr.Button(value="Undo", min_width=20)
-    #                         clear_btn = gr.Button(value="Clear", min_width=20)
-    #                         reset_btn = gr.Button(value="Reset", min_width=20)
-    #
-    #         with gr.Tab("Setting"):
-    #             with gr.Row(variant=self._variant, equal_height=False):
-    #                 with gr.Column():
-    #                     system_prompt = gr.Textbox(
-    #                         label="System Prompt",
-    #                         value=self._pipeline.get_system_prompt(),
-    #                         interactive=True,
-    #                         lines=10,
-    #                         max_lines=50,
-    #                     )
-    #                     sys_prompt_btn = gr.Button(value="Set System Prompt")
-    #
-    #         with gr.Tab("Output"):
-    #             with gr.Row(variant=self._variant):
-    #                 log = gr.Code(
-    #                     label="", language="markdown", interactive=False, lines=30
-    #                 )
-    #                 demo.load(
-    #                     self._logger.read_logs,
-    #                     outputs=[log],
-    #                     every=1,
-    #                     show_progress="hidden",
-    #                 )
-    #
-    #         # Define new helper functions to work within the Gradio context
-    #         def import_dataset(dataset_name):
-    #             try:
-    #                 # Import the datasets module
-    #                 from datasets import load_dataset
-    #
-    #                 # Parse the dataset name (removing 'datasets/' prefix if present)
-    #                 if dataset_name.startswith("datasets/"):
-    #                     dataset_name = dataset_name[len("datasets/"):]
-    #
-    #                 # Load the specified dataset from Hugging Face Hub
-    #                 try:
-    #                     dataset = load_dataset(dataset_name)
-    #                 except Exception as e:
-    #                     return [], f"Failed to load dataset: {str(e)}"
-    #
-    #                 # Process the dataset and convert to the format expected by the pipeline
-    #                 documents = []
-    #
-    #                 # Get the first split (usually 'train')
-    #                 split_name = list(dataset.keys())[0]
-    #                 data_split = dataset[split_name]
-    #
-    #                 # For MedRAG/textbooks, we know the structure from the screenshot
-    #                 # It has id, title, content, and contents fields
-    #
-    #                 # Extract text from the dataset - load ALL documents
-    #                 for i in range(len(data_split)):
-    #                     item = data_split[i]
-    #                     # Create a structured document with metadata from the dataset
-    #                     doc_id = item.get('id', f"doc_{i}")
-    #                     doc_title = item.get('title', "Untitled")
-    #
-    #                     # For the content, prioritize 'content' field, but also check 'contents' as backup
-    #                     doc_content = item.get('content', '')
-    #                     if not doc_content and 'contents' in item:
-    #                         doc_content = item.get('contents', '')
-    #
-    #                     # Skip empty documents
-    #                     if not doc_content:
-    #                         continue
-    #
-    #                     # Create a temporary file with the text content and metadata
-    #                     temp_file_path = os.path.join(self._data_dir, f"{doc_id}.txt")
-    #                     with open(temp_file_path, 'w', encoding='utf-8') as f:
-    #                         # Add title as header
-    #                         f.write(f"# {doc_title}\n\n")
-    #                         # Add the main content
-    #                         f.write(doc_content)
-    #
-    #                     documents.append(temp_file_path)
-    #
-    #                 if not documents:
-    #                     return [], f"No valid documents found in dataset {dataset_name}"
-    #
-    #                 return documents, f"Successfully loaded {len(documents)} documents from {dataset_name}"
-    #
-    #             except Exception as e:
-    #                 return [], f"Error: {str(e)}"
-    #
-    #         def process_documents(documents):
-    #             if not documents:
-    #                 return "No documents to process", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
-    #
-    #             # Process the documents
-    #             if self._host == "host.docker.internal":
-    #                 input_files = []
-    #                 for file_path in documents:
-    #                     dest = os.path.join(self._data_dir, file_path.split("/")[-1])
-    #                     if file_path != dest:  # Avoid moving if already at destination
-    #                         shutil.copy(src=file_path, dst=dest)
-    #                     input_files.append(dest)
-    #                 self._pipeline.store_nodes(input_files=input_files)
-    #             else:
-    #                 self._pipeline.store_nodes(input_files=documents)
-    #
-    #             self._pipeline.set_chat_mode()
-    #             return self._pipeline.get_system_prompt(), DefaultElement.COMPLETED_STATUS
-    #
-    #         # Event handlers
-    #         clear_btn.click(self._clear_chat, outputs=[message, chatbot, status])
-    #         cancel_btn.click(
-    #             lambda: (gr.update(visible=False), gr.update(visible=False), None),
-    #             outputs=[pull_btn, cancel_btn, model],
-    #         )
-    #         undo_btn.click(self._undo_chat, inputs=[chatbot], outputs=[chatbot])
-    #         reset_btn.click(
-    #             self._reset_chat, outputs=[message, chatbot, status]
-    #         )
-    #         pull_btn.click(
-    #             lambda: (gr.update(visible=False), gr.update(visible=False)),
-    #             outputs=[pull_btn, cancel_btn],
-    #         ).then(
-    #             self._pull_model,
-    #             inputs=[model],
-    #             outputs=[message, chatbot, status, model],
-    #         ).then(self._change_model, inputs=[model], outputs=[status])
-    #
-    #         # Update the message submission to not use documents
-    #         message.submit(
-    #             self._get_respone,
-    #             inputs=[chat_mode, message, chatbot],
-    #             outputs=[message, chatbot, status],
-    #         )
-    #
-    #         language.change(self._change_language, inputs=[language])
-    #         model.change(
-    #             self._get_confirm_pull_model,
-    #             inputs=[model],
-    #             outputs=[pull_btn, cancel_btn, status],
-    #         )
-    #
-    #         # Hugging Face dataset loading handler
-    #         load_dataset_btn.click(
-    #             import_dataset,
-    #             inputs=[huggingface_dataset],
-    #             outputs=[documents_state, status],
-    #         ).then(
-    #             process_documents,
-    #             inputs=[documents_state],
-    #             outputs=[system_prompt, status],
-    #         )
-    #
-    #         # Reset dataset button handler
-    #         reset_dataset_btn.click(
-    #             lambda: ([], "Documents reset successfully"),
-    #             outputs=[documents_state, status],
-    #         ).then(
-    #             lambda: self._pipeline.reset_documents(),
-    #             outputs=[],
-    #         )
-    #
-    #         sys_prompt_btn.click(self._change_system_prompt, inputs=[system_prompt])
-    #         ui_btn.click(
-    #             self._show_hide_setting,
-    #             inputs=[sidebar_state],
-    #             outputs=[ui_btn, setting, sidebar_state],
-    #         )
-    #
-    #         demo.load(self._welcome, outputs=[message, chatbot, status])
-    #
-    #     return demo
-
     def build(self):
-        """Build the chatbot UI with Hugging Face dataset integration instead of file upload"""
         with gr.Blocks(
                 theme=gr.themes.Soft(primary_hue="slate"),
                 js=JS_LIGHT_THEME,
                 css=CSS,
         ) as demo:
             gr.Markdown("## Local RAG Chatbot 🤖")
-            with gr.Tab("Interface"):
-                sidebar_state = gr.State(True)
-                with gr.Row(variant=self._variant, equal_height=False):
-                    with gr.Column(
-                            variant=self._variant, scale=10, visible=sidebar_state.value
-                    ) as setting:
-                        with gr.Column():
-                            status = gr.Textbox(
-                                label="Status", value="Ready!", interactive=False
-                            )
-                            language = gr.Radio(
-                                label="Language",
-                                choices=["vi", "eng"],
-                                value="eng",
-                                interactive=True,
-                            )
-                            model = gr.Dropdown(
-                                label="Choose Model:",
-                                choices=[
-                                    "llama3.2",
-                                ],
-                                value=None,
-                                interactive=True,
-                                allow_custom_value=True,
-                            )
-                            with gr.Row():
-                                pull_btn = gr.Button(
-                                    value="Pull Model", visible=False, min_width=50
-                                )
-                                cancel_btn = gr.Button(
-                                    value="Cancel", visible=False, min_width=50
-                                )
 
-                            # Hugging Face dataset input section
-                            gr.Markdown("### Dataset")
-                            huggingface_dataset = gr.Textbox(
-                                label="HuggingFace Dataset",
-                                placeholder="Enter dataset path (e.g., MedRAG/textbooks)",
-                                value="MedRAG/textbooks",
-                                interactive=True,
-                            )
-                            with gr.Row():
-                                load_dataset_btn = gr.Button(value="Load Dataset", min_width=50)
-                                reset_dataset_btn = gr.Button(value="Reset Dataset", min_width=50)
+            # Simplified UI for Kaggle
+            with gr.Row():
+                with gr.Column(scale=1):
+                    status = gr.Textbox(
+                        label="Status", value="Ready!", interactive=False
+                    )
+                    language = gr.Radio(
+                        label="Language",
+                        choices=["vi", "eng"],
+                        value="eng",
+                        interactive=True,
+                    )
+                    model = gr.Dropdown(
+                        label="Choose Model:",
+                        choices=[
+                            "llama3.2",
+                        ],
+                        value="llama3.2",  # Default to prevent errors
+                        interactive=True,
+                        allow_custom_value=True,
+                    )
 
-                    with gr.Column(scale=30, variant=self._variant):
-                        chatbot = gr.Chatbot(
-                            layout="bubble",
-                            value=[],
-                            height=550,
-                            scale=2,
-                            show_copy_button=True,
-                            bubble_full_width=False,
-                            avatar_images=self._avatar_images,
-                        )
+                    # Hugging Face dataset input section
+                    huggingface_dataset = gr.Textbox(
+                        label="HuggingFace Dataset",
+                        placeholder="Enter dataset path (e.g., MedRAG/textbooks)",
+                        value="MedRAG/textbooks",
+                        interactive=True,
+                    )
+                    load_dataset_btn = gr.Button(value="Load Dataset")
 
-                        with gr.Row(variant=self._variant):
-                            chat_mode = gr.Dropdown(
-                                choices=["chat", "QA"],
-                                value="QA",
-                                min_width=50,
-                                show_label=False,
-                                interactive=True,
-                                allow_custom_value=False,
-                            )
-                            message = gr.Textbox(
-                                value="",
-                                placeholder="Enter your message:",
-                                show_label=False,
-                                scale=6,
-                                lines=1,
-                            )
-                        with gr.Row(variant=self._variant):
-                            ui_btn = gr.Button(
-                                value="Hide Setting"
-                                if sidebar_state.value
-                                else "Show Setting",
-                                min_width=20,
-                            )
-                            undo_btn = gr.Button(value="Undo", min_width=20)
-                            clear_btn = gr.Button(value="Clear", min_width=20)
-                            reset_btn = gr.Button(value="Reset", min_width=20)
+                with gr.Column(scale=2):
+                    chatbot = gr.Chatbot(
+                        layout="bubble",
+                        value=[],
+                        height=550,
+                        show_copy_button=True,
+                        bubble_full_width=False,
+                    )
 
-            with gr.Tab("Setting"):
-                with gr.Row(variant=self._variant, equal_height=False):
-                    with gr.Column():
-                        system_prompt = gr.Textbox(
-                            label="System Prompt",
-                            value=self._pipeline.get_system_prompt(),
+                    with gr.Row():
+                        chat_mode = gr.Dropdown(
+                            choices=["chat", "QA"],
+                            value="QA",
+                            min_width=50,
+                            show_label=False,
                             interactive=True,
-                            lines=10,
-                            max_lines=50,
+                            allow_custom_value=False,
                         )
-                        sys_prompt_btn = gr.Button(value="Set System Prompt")
+                        message = gr.Textbox(  # Changed from MultimodalTextbox to simplify
+                            placeholder="Enter you message:",
+                            show_label=False,
+                            scale=6,
+                            lines=1,
+                        )
+                    with gr.Row():
+                        undo_btn = gr.Button(value="Undo", min_width=20)
+                        clear_btn = gr.Button(value="Clear", min_width=20)
+                        reset_btn = gr.Button(value="Reset", min_width=20)
 
-            with gr.Tab("Output"):
-                with gr.Row(variant=self._variant):
-                    log = gr.Code(
-                        label="", language="markdown", interactive=False, lines=30
-                    )
-                    demo.load(
-                        self._logger.read_logs,
-                        outputs=[log],
-                        every=1,
-                        show_progress="hidden",
-                    )
+            # Define helpers with error catching for Kaggle
+            def safe_import_dataset(dataset_name):
+                try:
+                    from datasets import load_dataset
 
-            # Helper function to convert message text to the expected format
-            def wrap_message(msg):
-                return {"text": msg}
+                    try:
+                        dataset = load_dataset(dataset_name)
 
-            # Event handlers
-            clear_btn.click(self._clear_chat, outputs=[message, chatbot, status])
-            cancel_btn.click(
-                lambda: (gr.update(visible=False), gr.update(visible=False), None),
-                outputs=[pull_btn, cancel_btn, model],
+                        # Process shorter number of documents for Kaggle
+                        documents = []
+                        split_name = list(dataset.keys())[0]
+                        data_split = dataset[split_name]
+
+                        # Process only first 5 documents for testing
+                        max_docs = min(5, len(data_split))
+                        for i in range(max_docs):
+                            item = data_split[i]
+                            doc_content = item.get('content', item.get('contents', ''))
+                            if not doc_content:
+                                continue
+
+                            # Use simpler path for Kaggle
+                            temp_file_path = f"/tmp/doc_{i}.txt"
+                            with open(temp_file_path, 'w', encoding='utf-8') as f:
+                                f.write(doc_content)
+                            documents.append(temp_file_path)
+
+                        if not documents:
+                            return "No documents found in dataset", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
+
+                        # Process the documents
+                        self._pipeline.store_nodes(input_files=documents)
+                        self._pipeline.set_chat_mode()
+                        return f"Loaded {len(documents)} documents from {dataset_name}", DefaultElement.COMPLETED_STATUS
+
+                    except Exception as e:
+                        return f"Error loading dataset: {str(e)}", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
+
+                except Exception as e:
+                    return f"Critical error: {str(e)}", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
+
+            # Event handlers with simplified error handling
+            clear_btn.click(
+                lambda: (gr.Textbox(value=""), [], "Cleared"),
+                outputs=[message, chatbot, status]
             )
-            undo_btn.click(self._undo_chat, inputs=[chatbot], outputs=[chatbot])
+
+            undo_btn.click(
+                lambda h: h[:-1] if len(h) > 0 else [],
+                inputs=[chatbot],
+                outputs=[chatbot]
+            )
+
             reset_btn.click(
-                self._reset_chat, outputs=[message, chatbot, status]
+                lambda: (gr.Textbox(value=""), [], "Reset"),
+                outputs=[message, chatbot, status]
             )
-            pull_btn.click(
-                lambda: (gr.update(visible=False), gr.update(visible=False)),
-                outputs=[pull_btn, cancel_btn],
-            ).then(
-                self._pull_model,
-                inputs=[model],
-                outputs=[message, chatbot, status, model],
-            ).then(self._change_model, inputs=[model], outputs=[status])
 
-            # Simplify the message submission
+            # Safe message handling
+            def safe_response(chat_mode, message_text, history):
+                try:
+                    if not message_text:
+                        return message_text, history, "Please enter a message"
+
+                    if self._pipeline.get_model_name() in [None, ""]:
+                        return message_text, history, "Please select a model first"
+
+                    # Use a simpler approach for Kaggle
+                    response = self._pipeline.query(chat_mode, message_text, history)
+                    answer = []
+                    for text in response.response_gen:
+                        answer.append(text)
+
+                    final_answer = "".join(answer)
+                    return "", history + [[message_text, final_answer]], "Completed"
+
+                except Exception as e:
+                    return message_text, history, f"Error: {str(e)}"
+
             message.submit(
-                lambda msg: process_message(msg),
-                inputs=[message],
-                outputs=[]
-            ).then(
-                self._get_respone,
-                inputs=[chat_mode, lambda msg: {"text": msg}, chatbot],
+                safe_response,
+                inputs=[chat_mode, message, chatbot],
                 outputs=[message, chatbot, status],
             )
 
-            language.change(self._change_language, inputs=[language])
-            model.change(
-                self._get_confirm_pull_model,
-                inputs=[model],
-                outputs=[pull_btn, cancel_btn, status],
-            )
-
-            # Hugging Face dataset loading handler
             load_dataset_btn.click(
-                self._import_from_huggingface,
+                safe_import_dataset,
                 inputs=[huggingface_dataset],
-                outputs=[status]
+                outputs=[status, status],
             )
 
-            # Reset dataset button handler
-            reset_dataset_btn.click(
-                self._reset_document,
-                outputs=[status]
+            # Simplified model handling
+            model.change(
+                lambda m: (self._pipeline.set_model_name(m), self._pipeline.set_model(), self._pipeline.set_engine(),
+                           f"Model set to {m}"),
+                inputs=[model],
+                outputs=[status],
             )
 
-            sys_prompt_btn.click(self._change_system_prompt, inputs=[system_prompt])
-            ui_btn.click(
-                self._show_hide_setting,
-                inputs=[sidebar_state],
-                outputs=[ui_btn, setting, sidebar_state],
-            )
-
-            demo.load(self._welcome, outputs=[message, chatbot, status])
+            # Add a welcome message that works in Kaggle
+            demo.load(lambda: ("", [["", "Hi 👋, how can I help you today?"]], "Ready!"),
+                      outputs=[message, chatbot, status])
 
         return demo
