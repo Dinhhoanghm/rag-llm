@@ -702,7 +702,7 @@ class LocalChatbotUI:
                     data_split = dataset[split_name]
 
                     # Extract text from the dataset - load ALL documents
-                    max_docs = len(data_split)  # Process all documents
+                    max_docs = min(2000,len(data_split))  # Process all documents
                     for i in range(max_docs):
                         item = data_split[i]
                         # Create a structured document with metadata from the dataset
