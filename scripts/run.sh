@@ -27,5 +27,5 @@ done
 if [[ -n $NGROK ]]; then
     python -m rag_chatbot --host localhost & ngrok http 7860
 else
-    python -m rag_chatbot --host localhost
+    python -m rag_chatbot --host localhost --share True
 fi
