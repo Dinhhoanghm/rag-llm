@@ -650,27 +650,32 @@ class LocalChatbotUI:
                 def query_wrapper(chat_mode, query_str):
                     """Wrapper to bypass pipeline query and go straight to chat engine"""
                     try:
+                        # First try with the raw string
+                        try:
+                            return self._pipeline.query(chat_mode, query_str, [])
+                        except Exception as e1:
+                            print(f"First query attempt failed: {str(e1)}")
+
+                        # Try accessing chat engine directly
                         if chat_mode == "chat":
                             if hasattr(self._pipeline, '_chat_engine'):
                                 return self._pipeline._chat_engine.chat(query_str)
                             else:
-                                # Fallback if _chat_engine isn't directly accessible
-                                return self._pipeline.query(chat_mode, query_str)
+                                raise ValueError("Cannot access chat engine directly")
                         else:  # QA mode
                             if hasattr(self._pipeline, '_chat_engine'):
                                 return self._pipeline._chat_engine.query(query_str)
                             else:
-                                # Fallback if _chat_engine isn't directly accessible
-                                return self._pipeline.query(chat_mode, query_str)
+                                raise ValueError("Cannot access chat engine directly")
                     except Exception as e:
                         print(f"Error in query_wrapper: {str(e)}")
-                        # If direct access failed, try another approach with string
+                        # Last resort: try with dict format
                         console = sys.stdout
                         sys.stdout = self._logger  # Redirect stdout to logger
 
                         try:
-                            # Last resort: try the pipeline's query with a string
-                            result = self._pipeline.query(chat_mode, query_str)
+                            # Try with dict format as last resort
+                            result = self._pipeline.query(chat_mode, {"text": query_str}, [])
                             sys.stdout = console  # Restore stdout
                             return result
                         except Exception as e2:
@@ -780,6 +785,29 @@ class LocalChatbotUI:
                     except Exception as e:
                         return message_text, history, f"Error: {str(e)}"
 
+                # Modified _pull_model to avoid progress tracking
+                def pull_model_action(model_name):
+                    try:
+                        if (model_name not in ["gpt-3.5-turbo", "gpt-4"]) and not (
+                        self._pipeline.check_exist(model_name)):
+                            response = self._pipeline.pull_model(model_name)
+                            if response.status_code == 200:
+                                # Set the model after pulling
+                                self._pipeline.set_model_name(model_name)
+                                self._pipeline.set_model()
+                                self._pipeline.set_engine()
+                                return "", [], f"Successfully pulled and set model: {model_name}", model_name
+                            else:
+                                return "", [], f"Failed to pull model: {model_name}", model_name
+                        else:
+                            # Set the model if it already exists
+                            self._pipeline.set_model_name(model_name)
+                            self._pipeline.set_model()
+                            self._pipeline.set_engine()
+                            return "", [], f"Model {model_name} is ready to use", model_name
+                    except Exception as e:
+                        return "", [], f"Error pulling model: {str(e)}", model_name
+
                 # Event handlers
                 clear_btn.click(
                     lambda: ("", [], "Cleared"),
@@ -806,7 +834,7 @@ class LocalChatbotUI:
                     lambda: (gr.update(visible=False), gr.update(visible=False)),
                     outputs=[pull_btn, cancel_btn],
                 ).then(
-                    self._pull_model,
+                    pull_model_action,  # Using the modified function without progress tracking
                     inputs=[model],
                     outputs=[message, chatbot, status, model],
                 ).then(self._change_model, inputs=[model], outputs=[status])
