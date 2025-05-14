@@ -196,6 +196,89 @@ class LocalChatbotUI:
             gr.update(visible=False),
         )
 
+    def _import_from_huggingface(self, document: list[str], dataset_name: str = "MedRAG/textbooks"):
+        """Import documents from Hugging Face datasets instead of uploading files"""
+        try:
+            # Import the datasets module
+            from datasets import load_dataset
+
+            # Parse the dataset name (removing 'datasets/' prefix if present)
+            if dataset_name.startswith("datasets/"):
+                dataset_name = dataset_name[len("datasets/"):]
+
+            gr.Info(f"Loading dataset from Hugging Face: {dataset_name}")
+
+            # Load the specified dataset from Hugging Face Hub
+            try:
+                dataset = load_dataset(dataset_name)
+            except Exception as e:
+                gr.Warning(f"Failed to load dataset with error: {str(e)}")
+                gr.Info("Trying with additional parameters...")
+                # Try with additional parameters that might help with some datasets
+                dataset = load_dataset(dataset_name, trust_remote_code=True)
+
+            gr.Info(f"Successfully loaded dataset: {dataset_name}")
+
+            # Process the dataset and convert to the format expected by the pipeline
+            documents = []
+
+            # Get the first split (usually 'train')
+            split_name = list(dataset.keys())[0]
+            data_split = dataset[split_name]
+
+            # Show information about total number of documents
+            total_docs = len(data_split)
+            gr.Info(f"Total documents in dataset: {total_docs}")
+
+            # For MedRAG/textbooks, we know the structure from the screenshot
+            # It has id, title, content, and contents fields
+
+            # Extract text from the dataset - load ALL documents
+            for i in range(total_docs):
+                # Add progress update every 100 documents
+                if i % 100 == 0:
+                    gr.Info(f"Processing document {i}/{total_docs}...")
+
+                item = data_split[i]
+                # Create a structured document with metadata from the dataset
+                doc_id = item.get('id', f"doc_{i}")
+                doc_title = item.get('title', "Untitled")
+
+                # For the content, prioritize 'content' field, but also check 'contents' as backup
+                doc_content = item.get('content', '')
+                if not doc_content and 'contents' in item:
+                    doc_content = item.get('contents', '')
+
+                # Skip empty documents
+                if not doc_content:
+                    continue
+
+                # Create a temporary file with the text content and metadata
+                temp_file_path = os.path.join(self._data_dir, f"{doc_id}.txt")
+                with open(temp_file_path, 'w', encoding='utf-8') as f:
+                    # Add title as header
+                    f.write(f"# {doc_title}\n\n")
+                    # Add the main content
+                    f.write(doc_content)
+
+                documents.append(temp_file_path)
+
+            if not documents:
+                gr.Warning("No valid documents extracted from the dataset.")
+                return document
+
+            gr.Info(f"Successfully extracted {len(documents)} documents from the dataset.")
+
+            # Combine with existing documents if any
+            if document not in [None, []]:
+                combined_docs = document + documents
+                return combined_docs
+            return documents
+
+        except Exception as e:
+            gr.Warning(f"Error loading dataset from Hugging Face: {str(e)}")
+            return document  # Return original documents if loading fails
+
     def _show_document_btn(self, document: list[str]):
         visible = False if document in [None, []] else True
         return (gr.update(visible=visible), gr.update(visible=visible))
@@ -261,18 +344,205 @@ class LocalChatbotUI:
         for m in self._llm_response.welcome():
             yield m
 
+    # def build(self):
+    #     with gr.Blocks(
+    #         theme=gr.themes.Soft(primary_hue="slate"),
+    #         js=JS_LIGHT_THEME,
+    #         css=CSS,
+    #     ) as demo:
+    #         gr.Markdown("## Local RAG Chatbot 🤖")
+    #         with gr.Tab("Interface"):
+    #             sidebar_state = gr.State(True)
+    #             with gr.Row(variant=self._variant, equal_height=False):
+    #                 with gr.Column(
+    #                     variant=self._variant, scale=10, visible=sidebar_state.value
+    #                 ) as setting:
+    #                     with gr.Column():
+    #                         status = gr.Textbox(
+    #                             label="Status", value="Ready!", interactive=False
+    #                         )
+    #                         language = gr.Radio(
+    #                             label="Language",
+    #                             choices=["vi", "eng"],
+    #                             value="eng",
+    #                             interactive=True,
+    #                         )
+    #                         model = gr.Dropdown(
+    #                             label="Choose Model:",
+    #                             choices=[
+    #                                 "llama3.2",
+    #                             ],
+    #                             value=None,
+    #                             interactive=True,
+    #                             allow_custom_value=True,
+    #                         )
+    #                         with gr.Row():
+    #                             pull_btn = gr.Button(
+    #                                 value="Pull Model", visible=False, min_width=50
+    #                             )
+    #                             cancel_btn = gr.Button(
+    #                                 value="Cancel", visible=False, min_width=50
+    #                             )
+    #
+    #                         documents = gr.Files(
+    #                             label="Add Documents",
+    #                             value=[],
+    #                             file_types=[".txt", ".pdf", ".csv"],
+    #                             file_count="multiple",
+    #                             height=150,
+    #                             interactive=True,
+    #                         )
+    #                         with gr.Row():
+    #                             upload_doc_btn = gr.UploadButton(
+    #                                 label="Upload",
+    #                                 value=[],
+    #                                 file_types=[".txt", ".pdf", ".csv"],
+    #                                 file_count="multiple",
+    #                                 min_width=20,
+    #                                 visible=False,
+    #                             )
+    #                             reset_doc_btn = gr.Button(
+    #                                 "Reset", min_width=20, visible=False
+    #                             )
+    #
+    #                 with gr.Column(scale=30, variant=self._variant):
+    #                     chatbot = gr.Chatbot(
+    #                         layout="bubble",
+    #                         value=[],
+    #                         height=550,
+    #                         scale=2,
+    #                         show_copy_button=True,
+    #                         bubble_full_width=False,
+    #                         avatar_images=self._avatar_images,
+    #                     )
+    #
+    #                     with gr.Row(variant=self._variant):
+    #                         chat_mode = gr.Dropdown(
+    #                             choices=["chat", "QA"],
+    #                             value="QA",
+    #                             min_width=50,
+    #                             show_label=False,
+    #                             interactive=True,
+    #                             allow_custom_value=False,
+    #                         )
+    #                         message = gr.MultimodalTextbox(
+    #                             value=DefaultElement.DEFAULT_MESSAGE,
+    #                             placeholder="Enter you message:",
+    #                             file_types=[".txt", ".pdf", ".csv"],
+    #                             show_label=False,
+    #                             scale=6,
+    #                             lines=1,
+    #                         )
+    #                     with gr.Row(variant=self._variant):
+    #                         ui_btn = gr.Button(
+    #                             value="Hide Setting"
+    #                             if sidebar_state.value
+    #                             else "Show Setting",
+    #                             min_width=20,
+    #                         )
+    #                         undo_btn = gr.Button(value="Undo", min_width=20)
+    #                         clear_btn = gr.Button(value="Clear", min_width=20)
+    #                         reset_btn = gr.Button(value="Reset", min_width=20)
+    #
+    #         with gr.Tab("Setting"):
+    #             with gr.Row(variant=self._variant, equal_height=False):
+    #                 with gr.Column():
+    #                     system_prompt = gr.Textbox(
+    #                         label="System Prompt",
+    #                         value=self._pipeline.get_system_prompt(),
+    #                         interactive=True,
+    #                         lines=10,
+    #                         max_lines=50,
+    #                     )
+    #                     sys_prompt_btn = gr.Button(value="Set System Prompt")
+    #
+    #         with gr.Tab("Output"):
+    #             with gr.Row(variant=self._variant):
+    #                 log = gr.Code(
+    #                     label="", language="markdown", interactive=False, lines=30
+    #                 )
+    #                 demo.load(
+    #                     self._logger.read_logs,
+    #                     outputs=[log],
+    #                     every=1,
+    #                     show_progress="hidden",
+    #                     # scroll_to_output=True,
+    #                 )
+    #
+    #         clear_btn.click(self._clear_chat, outputs=[message, chatbot, status])
+    #         cancel_btn.click(
+    #             lambda: (gr.update(visible=False), gr.update(visible=False), None),
+    #             outputs=[pull_btn, cancel_btn, model],
+    #         )
+    #         undo_btn.click(self._undo_chat, inputs=[chatbot], outputs=[chatbot])
+    #         reset_btn.click(
+    #             self._reset_chat, outputs=[message, chatbot, documents, status]
+    #         )
+    #         pull_btn.click(
+    #             lambda: (gr.update(visible=False), gr.update(visible=False)),
+    #             outputs=[pull_btn, cancel_btn],
+    #         ).then(
+    #             self._pull_model,
+    #             inputs=[model],
+    #             outputs=[message, chatbot, status, model],
+    #         ).then(self._change_model, inputs=[model], outputs=[status])
+    #         message.submit(
+    #             self._upload_document, inputs=[documents, message], outputs=[documents]
+    #         ).then(
+    #             self._get_respone,
+    #             inputs=[chat_mode, message, chatbot],
+    #             outputs=[message, chatbot, status],
+    #         )
+    #         language.change(self._change_language, inputs=[language])
+    #         model.change(
+    #             self._get_confirm_pull_model,
+    #             inputs=[model],
+    #             outputs=[pull_btn, cancel_btn, status],
+    #         )
+    #         documents.change(
+    #             self._processing_document,
+    #             inputs=[documents],
+    #             outputs=[system_prompt, status],
+    #         ).then(
+    #             self._show_document_btn,
+    #             inputs=[documents],
+    #             outputs=[upload_doc_btn, reset_doc_btn],
+    #         )
+    #
+    #         sys_prompt_btn.click(self._change_system_prompt, inputs=[system_prompt])
+    #         ui_btn.click(
+    #             self._show_hide_setting,
+    #             inputs=[sidebar_state],
+    #             outputs=[ui_btn, setting, sidebar_state],
+    #         )
+    #         upload_doc_btn.upload(
+    #             self._upload_document,
+    #             inputs=[documents, upload_doc_btn],
+    #             outputs=[documents, upload_doc_btn],
+    #         )
+    #         reset_doc_btn.click(
+    #             self._reset_document, outputs=[documents, upload_doc_btn, reset_doc_btn]
+    #         )
+    #         demo.load(self._welcome, outputs=[message, chatbot, status])
+    #
+    #     return demo
+
     def build(self):
         with gr.Blocks(
-            theme=gr.themes.Soft(primary_hue="slate"),
-            js=JS_LIGHT_THEME,
-            css=CSS,
+                theme=gr.themes.Soft(primary_hue="slate"),
+                js=JS_LIGHT_THEME,
+                css=CSS,
         ) as demo:
             gr.Markdown("## Local RAG Chatbot 🤖")
+
+            # Create a state variable to hold our documents
+            documents_state = gr.State([])
+
             with gr.Tab("Interface"):
                 sidebar_state = gr.State(True)
                 with gr.Row(variant=self._variant, equal_height=False):
                     with gr.Column(
-                        variant=self._variant, scale=10, visible=sidebar_state.value
+                            variant=self._variant, scale=10, visible=sidebar_state.value
                     ) as setting:
                         with gr.Column():
                             status = gr.Textbox(
@@ -287,7 +557,7 @@ class LocalChatbotUI:
                             model = gr.Dropdown(
                                 label="Choose Model:",
                                 choices=[
-                                    "llama3.1:8b-instruct-q8_0",
+                                    "llama3.2",
                                 ],
                                 value=None,
                                 interactive=True,
@@ -301,26 +571,17 @@ class LocalChatbotUI:
                                     value="Cancel", visible=False, min_width=50
                                 )
 
-                            documents = gr.Files(
-                                label="Add Documents",
-                                value=[],
-                                file_types=[".txt", ".pdf", ".csv"],
-                                file_count="multiple",
-                                height=150,
+                            # Hugging Face dataset input section
+                            gr.Markdown("### Dataset")
+                            huggingface_dataset = gr.Textbox(
+                                label="HuggingFace Dataset",
+                                placeholder="Enter dataset path (e.g., MedRAG/textbooks)",
+                                value="MedRAG/textbooks",
                                 interactive=True,
                             )
                             with gr.Row():
-                                upload_doc_btn = gr.UploadButton(
-                                    label="Upload",
-                                    value=[],
-                                    file_types=[".txt", ".pdf", ".csv"],
-                                    file_count="multiple",
-                                    min_width=20,
-                                    visible=False,
-                                )
-                                reset_doc_btn = gr.Button(
-                                    "Reset", min_width=20, visible=False
-                                )
+                                load_dataset_btn = gr.Button(value="Load Dataset", min_width=50)
+                                reset_dataset_btn = gr.Button(value="Reset Dataset", min_width=50)
 
                     with gr.Column(scale=30, variant=self._variant):
                         chatbot = gr.Chatbot(
@@ -383,9 +644,88 @@ class LocalChatbotUI:
                         outputs=[log],
                         every=1,
                         show_progress="hidden",
-                        # scroll_to_output=True,
                     )
 
+            # Define new helper functions to work within the Gradio context
+            def import_dataset(dataset_name):
+                try:
+                    # Import the datasets module
+                    from datasets import load_dataset
+
+                    # Parse the dataset name (removing 'datasets/' prefix if present)
+                    if dataset_name.startswith("datasets/"):
+                        dataset_name = dataset_name[len("datasets/"):]
+
+                    # Load the specified dataset from Hugging Face Hub
+                    try:
+                        dataset = load_dataset(dataset_name)
+                    except Exception as e:
+                        return [], f"Failed to load dataset: {str(e)}"
+
+                    # Process the dataset and convert to the format expected by the pipeline
+                    documents = []
+
+                    # Get the first split (usually 'train')
+                    split_name = list(dataset.keys())[0]
+                    data_split = dataset[split_name]
+
+                    # For MedRAG/textbooks, we know the structure from the screenshot
+                    # It has id, title, content, and contents fields
+
+                    # Extract text from the dataset - load ALL documents
+                    for i in range(len(data_split)):
+                        item = data_split[i]
+                        # Create a structured document with metadata from the dataset
+                        doc_id = item.get('id', f"doc_{i}")
+                        doc_title = item.get('title', "Untitled")
+
+                        # For the content, prioritize 'content' field, but also check 'contents' as backup
+                        doc_content = item.get('content', '')
+                        if not doc_content and 'contents' in item:
+                            doc_content = item.get('contents', '')
+
+                        # Skip empty documents
+                        if not doc_content:
+                            continue
+
+                        # Create a temporary file with the text content and metadata
+                        temp_file_path = os.path.join(self._data_dir, f"{doc_id}.txt")
+                        with open(temp_file_path, 'w', encoding='utf-8') as f:
+                            # Add title as header
+                            f.write(f"# {doc_title}\n\n")
+                            # Add the main content
+                            f.write(doc_content)
+
+                        documents.append(temp_file_path)
+
+                    if not documents:
+                        return [], f"No valid documents found in dataset {dataset_name}"
+
+                    return documents, f"Successfully loaded {len(documents)} documents from {dataset_name}"
+
+                except Exception as e:
+                    return [], f"Error: {str(e)}"
+
+            def process_documents(documents):
+                if not documents:
+                    return "No documents to process", DefaultElement.PROCESS_DOCUMENT_EMPTY_STATUS
+
+                # Process the documents
+                if self._host == "host.docker.internal":
+                    input_files = []
+                    for file_path in documents:
+                        dest = os.path.join(self._data_dir, file_path.split("/")[-1])
+                        if file_path != dest:  # Avoid moving if already at destination
+                            shutil.copy(src=file_path, dst=dest)
+                        input_files.append(dest)
+                    self._pipeline.store_nodes(input_files=input_files)
+                else:
+                    self._pipeline.store_nodes(input_files=documents)
+
+                self._pipeline.set_chat_mode()
+                return self._pipeline.get_system_prompt(), DefaultElement.COMPLETED_STATUS
+
+            # Event handlers
             clear_btn.click(self._clear_chat, outputs=[message, chatbot, status])
             cancel_btn.click(
                 lambda: (gr.update(visible=False), gr.update(visible=False), None),
@@ -393,7 +733,7 @@ class LocalChatbotUI:
             )
             undo_btn.click(self._undo_chat, inputs=[chatbot], outputs=[chatbot])
             reset_btn.click(
-                self._reset_chat, outputs=[message, chatbot, documents, status]
+                self._reset_chat, outputs=[message, chatbot, status]
             )
             pull_btn.click(
                 lambda: (gr.update(visible=False), gr.update(visible=False)),
@@ -403,27 +743,39 @@ class LocalChatbotUI:
                 inputs=[model],
                 outputs=[message, chatbot, status, model],
             ).then(self._change_model, inputs=[model], outputs=[status])
+
+            # Update the message submission to not use documents
             message.submit(
-                self._upload_document, inputs=[documents, message], outputs=[documents]
-            ).then(
                 self._get_respone,
                 inputs=[chat_mode, message, chatbot],
                 outputs=[message, chatbot, status],
             )
+
             language.change(self._change_language, inputs=[language])
             model.change(
                 self._get_confirm_pull_model,
                 inputs=[model],
                 outputs=[pull_btn, cancel_btn, status],
             )
-            documents.change(
-                self._processing_document,
-                inputs=[documents],
-                outputs=[system_prompt, status],
+
+            # Hugging Face dataset loading handler
+            load_dataset_btn.click(
+                import_dataset,
+                inputs=[huggingface_dataset],
+                outputs=[documents_state, status],
             ).then(
-                self._show_document_btn,
-                inputs=[documents],
-                outputs=[upload_doc_btn, reset_doc_btn],
+                process_documents,
+                inputs=[documents_state],
+                outputs=[system_prompt, status],
+            )
+
+            # Reset dataset button handler
+            reset_dataset_btn.click(
+                lambda: ([], "Documents reset successfully"),
+                outputs=[documents_state, status],
+            ).then(
+                lambda: self._pipeline.reset_documents(),
+                outputs=[],
             )
 
             sys_prompt_btn.click(self._change_system_prompt, inputs=[system_prompt])
@@ -432,14 +784,7 @@ class LocalChatbotUI:
                 inputs=[sidebar_state],
                 outputs=[ui_btn, setting, sidebar_state],
             )
-            upload_doc_btn.upload(
-                self._upload_document,
-                inputs=[documents, upload_doc_btn],
-                outputs=[documents, upload_doc_btn],
-            )
-            reset_doc_btn.click(
-                self._reset_document, outputs=[documents, upload_doc_btn, reset_doc_btn]
-            )
+
             demo.load(self._welcome, outputs=[message, chatbot, status])
 
         return demo
