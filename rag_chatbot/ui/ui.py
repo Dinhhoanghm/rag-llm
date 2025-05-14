@@ -927,15 +927,14 @@ class LocalChatbotUI:
                 outputs=[message, chatbot, status, model],
             ).then(self._change_model, inputs=[model], outputs=[status])
 
-            # Fix the message submission flow
-            def process_and_respond(msg, history, mode):
-                msg_dict = {"text": msg}
-                return self._get_respone(mode, msg_dict, history)
-
-            # Connect the message submission
+            # Simplify the message submission
             message.submit(
-                process_and_respond,
-                inputs=[message, chatbot, chat_mode],
+                lambda msg: process_message(msg),
+                inputs=[message],
+                outputs=[]
+            ).then(
+                self._get_respone,
+                inputs=[chat_mode, lambda msg: {"text": msg}, chatbot],
                 outputs=[message, chatbot, status],
             )
 
