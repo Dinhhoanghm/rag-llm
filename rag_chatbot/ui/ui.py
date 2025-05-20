@@ -312,11 +312,6 @@ class LocalChatbotUI:
 
                             # PDF folder loading section
                             gr.Markdown("### Load PDFs from Folder")
-                            folder_path = gr.Textbox(
-                                label="Folder Path",
-                                placeholder="Enter path to folder containing PDF files",
-                                interactive=True,
-                            )
                             with gr.Row():
                                 load_folder_btn = gr.Button(
                                     value="Load PDFs", min_width=50
@@ -398,7 +393,7 @@ class LocalChatbotUI:
             # Add event handler for folder loading
             load_folder_btn.click(
                 self._load_pdfs_from_folder,
-                inputs=[folder_path],
+                inputs="data/data",
                 outputs=[status, loaded_docs],
             )
 
