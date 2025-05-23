@@ -1,12 +1,13 @@
 import os
-import torch
+
 import requests
+import torch
+from dotenv import load_dotenv
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.embeddings.openai import OpenAIEmbedding
 from transformers import AutoModel, AutoTokenizer
-from ...setting import RAGSettings
-from dotenv import load_dotenv
 
+from ...setting import RAGSettings
 
 load_dotenv()
 
@@ -19,17 +20,14 @@ class LocalEmbedding:
         if model_name != "text-embedding-ada-002":
             return HuggingFaceEmbedding(
                 model=AutoModel.from_pretrained(
-                    model_name,
-                    torch_dtype=torch.float16,
-                    trust_remote_code=True
+                    model_name, torch_dtype=torch.float16, trust_remote_code=True
                 ),
                 tokenizer=AutoTokenizer.from_pretrained(
-                    model_name,
-                    torch_dtype=torch.float16
+                    model_name, torch_dtype=torch.float16
                 ),
                 cache_folder=os.path.join(os.getcwd(), setting.ingestion.cache_folder),
                 trust_remote_code=True,
-                embed_batch_size=setting.ingestion.embed_batch_size
+                embed_batch_size=setting.ingestion.embed_batch_size,
             )
         else:
             return OpenAIEmbedding()
@@ -37,9 +35,7 @@ class LocalEmbedding:
     @staticmethod
     def pull(host: str, **kwargs):
         setting = RAGSettings()
-        payload = {
-            "name": setting.ingestion.embed_llm
-        }
+        payload = {"name": setting.ingestion.embed_llm}
         return requests.post(f"http://{host}:11434/api/pull", json=payload, stream=True)
 
     @staticmethod

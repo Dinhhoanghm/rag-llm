@@ -1,25 +1,28 @@
+import argparse
 import asyncio
 import json
-import argparse
+
 import pandas as pd
 from dotenv import load_dotenv
-from tqdm.asyncio import tqdm_asyncio
-from llama_index.core import VectorStoreIndex, Settings
-from llama_index.core.retrievers import VectorIndexRetriever
-from llama_index.retrievers.bm25 import BM25Retriever
-from llama_index.core.postprocessor import SentenceTransformerRerank
+from llama_index.core import Settings, VectorStoreIndex
 from llama_index.core.evaluation import (
-    RetrieverEvaluator,
-    FaithfulnessEvaluator,
     AnswerRelevancyEvaluator,
     ContextRelevancyEvaluator,
+    EmbeddingQAFinetuneDataset,
+    FaithfulnessEvaluator,
+    RetrieverEvaluator,
 )
-from llama_index.core.evaluation import EmbeddingQAFinetuneDataset
+from llama_index.core.postprocessor import SentenceTransformerRerank
+from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.storage.docstore import DocumentStore
+from llama_index.retrievers.bm25 import BM25Retriever
+from tqdm.asyncio import tqdm_asyncio
+
+from ..core import LocalEmbedding
 from ..core.engine import LocalChatEngine, LocalRetriever
 from ..core.model import LocalRAGModel
-from ..setting import RAGSettings
 from ..ollama import is_port_open, run_ollama_server
+from ..setting import RAGSettings
 
 load_dotenv()
 
@@ -42,13 +45,18 @@ class RAGPipelineEvaluator:
         self._teacher = LocalRAGModel.set(model_name=teacher, host=host)
         self._engine = LocalChatEngine(host=host)
         Settings.llm = self._llm
-        # Settings.embed_model = LocalEmbedding.set()
+        Settings.embed_model = LocalEmbedding.set(
+            model_name="BAAI/bge-base-en-v1.5", host=host
+        )
 
         # dataset
         docstore = DocumentStore.from_persist_path(docstore_path)
         nodes = list(docstore.docs.values())
+        print(len(nodes))
         self._index = VectorStoreIndex(nodes=nodes)
+        print("Index created")
         self._dataset = EmbeddingQAFinetuneDataset.from_json(dataset_path)
+        print("Dataset created")
         self._top_k = self._setting.retriever.similarity_top_k
         self._top_k_rerank = self._setting.retriever.top_k_rerank
 
@@ -78,7 +86,8 @@ class RAGPipelineEvaluator:
                 ["mrr", "hit_rate"], retriever=self._retriever["bm25"]
             ),
             "base_rerank": RetrieverEvaluator.from_metric_names(
-                ["mrr", "hit_rate"], retriever=self._retriever["base_rerank"],
+                ["mrr", "hit_rate"],
+                retriever=self._retriever["base_rerank"],
                 node_postprocessors=[
                     SentenceTransformerRerank(
                         top_n=self._top_k_rerank,
@@ -87,7 +96,8 @@ class RAGPipelineEvaluator:
                 ],
             ),
             "bm25_rerank": RetrieverEvaluator.from_metric_names(
-                ["mrr", "hit_rate"], retriever=self._retriever["bm25_rerank"],
+                ["mrr", "hit_rate"],
+                retriever=self._retriever["bm25_rerank"],
                 node_postprocessors=[
                     SentenceTransformerRerank(
                         top_n=self._top_k_rerank,
@@ -107,10 +117,10 @@ class RAGPipelineEvaluator:
             "answer_relevancy": AnswerRelevancyEvaluator(
                 llm=self._teacher,
             ),
-            "context_relevancy": ContextRelevancyEvaluator(
-                llm=self._teacher
-            )
+            "context_relevancy": ContextRelevancyEvaluator(llm=self._teacher),
         }
+
+        print("Init complete")
 
     async def eval_retriever(self):
         result = {}
@@ -120,7 +130,7 @@ class RAGPipelineEvaluator:
                 retriever_name,
                 await self._retriever_evaluator[retriever_name].aevaluate_dataset(
                     self._dataset, show_progress=True
-                )
+                ),
             )
         return result
 
@@ -137,7 +147,7 @@ class RAGPipelineEvaluator:
         response = []
         for i in range(0, len(queries), 10):
             print(f"Running queries {i} to {i+10}")
-            task = [query_engine.aquery(q) for q in queries[i:i + 10]]
+            task = [query_engine.aquery(q) for q in queries[i : i + 10]]
             response += await tqdm_asyncio.gather(*task, desc="querying")
             await asyncio.sleep(5)
 
@@ -163,9 +173,7 @@ class RAGPipelineEvaluator:
                 )
             )
 
-        faithful_result = await tqdm_asyncio.gather(
-            *faithful_task, desc="faithfulness"
-        )
+        faithful_result = await tqdm_asyncio.gather(*faithful_task, desc="faithfulness")
         answer_relevancy_result = await tqdm_asyncio.gather(
             *answer_relevancy_task, desc="answer_relevancy"
         )
@@ -251,7 +259,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.host != "host.docker.internal":
         port_number = 11434
-        if not is_port_open(port_number) and args.llm not in ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4-turbo"]:
+        if not is_port_open(port_number) and args.llm not in [
+            "gpt-3.5-turbo",
+            "gpt-4",
+            "gpt-4o",
+            "gpt-4-turbo",
+        ]:
             run_ollama_server()
     evaluator = RAGPipelineEvaluator(
         llm=args.llm,
