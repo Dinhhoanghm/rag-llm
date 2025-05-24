@@ -1,0 +1,1 @@
+python -m rag_chatbot.eval --type retriever --llm llama3.2 --teacher gpt-4o-mini --dataset val_dataset/dataset.json --docstore val_dataset/docstore.json 

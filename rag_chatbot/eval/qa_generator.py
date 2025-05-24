@@ -1,18 +1,17 @@
+import os
 import random
 import re
-import os
 import uuid
 from typing import List
-from tqdm import tqdm
-from llama_index.core.llms.utils import LLM
+
+from llama_index.core.evaluation import EmbeddingQAFinetuneDataset
 from llama_index.core.schema import MetadataMode, TextNode
 from llama_index.core.storage.docstore import DocumentStore
-from llama_index.core.evaluation import EmbeddingQAFinetuneDataset
-from ..core.model import LocalRAGModel
-from ..core.embedding import LocalEmbedding
+from tqdm import tqdm
+
 from ..core.ingestion import LocalDataIngestion
 from ..setting import RAGSettings
-
+from .llm import OpenRouterLLM
 
 DEFAULT_QA_GENERATE_PROMPT_TMPL = """\
 Context information is below.
@@ -35,7 +34,7 @@ Only provide the questions, not the answers.\"
 # generate queries as a convenience function
 def generate_question_context_pairs(
     nodes: List[TextNode],
-    llm: LLM,
+    llm: OpenRouterLLM,
     qa_generate_prompt_tmpl: str = DEFAULT_QA_GENERATE_PROMPT_TMPL,
     num_questions_per_chunk: int = 2,
 ) -> EmbeddingQAFinetuneDataset:
@@ -51,12 +50,11 @@ def generate_question_context_pairs(
         query = qa_generate_prompt_tmpl.format(
             context_str=text, num_questions_per_chunk=num_questions_per_chunk
         )
-        response = llm.complete(query)
+        response = llm.query(query)
 
         result = str(response).strip().split("\n")
         questions = [
-            re.sub(r"^\d+[\).\s]", "", question).strip()
-            for question in result
+            re.sub(r"^\d+[\).\s]", "", question).strip() for question in result
         ]
         questions = [question for question in questions if len(question) > 0]
 
@@ -80,8 +78,7 @@ class QAGenerator:
     ) -> None:
         setting = RAGSettings()
         setting.ingestion.embed_llm = embed_model or setting.ingestion.embed_llm
-        self._embed_model = LocalEmbedding.set(setting)
-        self._llm = LocalRAGModel.set(model_name=llm or setting.ollama.llm, host=host)
+        self._llm = OpenRouterLLM(model_name=llm)
         self._ingestion = LocalDataIngestion()
 
     def generate(
@@ -96,9 +93,11 @@ class QAGenerator:
 
         if os.path.exists(os.path.join(output_dir, "docstore.json")):
             print("Docstore already exist! Skip ingestion.")
-            
 
-        nodes = self._ingestion.store_nodes(input_files, embed_nodes=True)
+        nodes = self._ingestion.store_nodes(
+            input_files,
+            embed_nodes=True,
+        )
         random.shuffle(nodes)
         dataset = generate_question_context_pairs(
             nodes=nodes[:max_nodes],
