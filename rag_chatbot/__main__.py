@@ -1,4 +1,6 @@
 import argparse
+import threading
+
 import llama_index
 from dotenv import load_dotenv
 from .ui import LocalChatbotUI
@@ -56,3 +58,14 @@ ui.build().launch(
     show_api=False,
     prevent_thread_lock=True
 )
+def launch_ui():
+    ui.build().launch(
+        share=True,               # hoặc False nếu không cần link
+        server_name="0.0.0.0",
+        debug=False,
+        show_api=False,
+        inline=True
+    )
+
+# Chạy Gradio trong thread riêng
+threading.Thread(target=launch_ui).start()
