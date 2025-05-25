@@ -50,9 +50,9 @@ ui = LocalChatbotUI(
 )
 
 ui.build().launch(
-    share=False,
+    share=True,
     server_name="0.0.0.0",
     debug=False,
     show_api=False,
-    inline=True,
+    prevent_thread_lock=True
 )
